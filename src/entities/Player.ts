@@ -22,7 +22,8 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   state: PlayerStateType = PlayerState.IDLE
   private lastDirection: -1 | 1 = 1
   private heldEnemy = false
-  private inhaleKey: Phaser.Input.Keyboard.Key
+  private spaceKey: Phaser.Input.Keyboard.Key
+  private spitRequested = false
   private inhaleZone: Phaser.GameObjects.Zone
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
@@ -31,7 +32,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     scene.add.existing(this)
     scene.physics.add.existing(this)
 
-    this.inhaleKey = scene.input.keyboard!.addKey(
+    this.spaceKey = scene.input.keyboard!.addKey(
       Phaser.Input.Keyboard.KeyCodes.SPACE,
     )
 
@@ -50,7 +51,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   update(cursors: Phaser.Types.Input.Keyboard.CursorKeys) {
     const leftDown = cursors.left?.isDown ?? false
     const rightDown = cursors.right?.isDown ?? false
-    const inhaleDown = this.inhaleKey.isDown && this.state !== PlayerState.FULL
+    const inhaleDown = this.spaceKey.isDown && this.state !== PlayerState.FULL
 
     if (leftDown) {
       this.lastDirection = -1
@@ -81,10 +82,12 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       }
     }
 
+    if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && this.state === PlayerState.FULL) {
+      this.spitRequested = true
+    }
+
     const targetScale = this.state === PlayerState.FULL ? 1.3 : 1
     if (this.scaleX !== targetScale) {
-      const deltaHeight = PLAYER_HEIGHT * (targetScale - this.scaleX)
-      this.y -= deltaHeight / 2
       this.setScale(targetScale)
     }
 
@@ -99,6 +102,22 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
 
   getInhaleZone(): Phaser.GameObjects.Zone {
     return this.inhaleZone
+  }
+
+  consumeSpitRequest(): boolean {
+    const requested = this.spitRequested
+    this.spitRequested = false
+    return requested
+  }
+
+  releaseFull() {
+    this.heldEnemy = false
+    this.state = PlayerState.IDLE
+    this.clearTint()
+  }
+
+  getFacingDirection(): -1 | 1 {
+    return this.lastDirection
   }
 
   captureEnemy(enemy: Phaser.Physics.Arcade.Sprite) {
