@@ -9,6 +9,7 @@ const ENEMY_SPRITE_PATHS = {
   normal: 'assets/enemy-normal.png',
   flying: 'assets/enemy-flying.png',
   ghost: 'assets/enemy-ghost.png',
+  projectile: 'assets/enemy-projectile.png',
 }
 
 const PLAYER_SPRITE_PATHS = {
@@ -33,6 +34,7 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image(TextureKeys.Enemy, ENEMY_SPRITE_PATHS.normal)
     this.load.image(TextureKeys.Flyer, ENEMY_SPRITE_PATHS.flying)
     this.load.image(TextureKeys.Ghost, ENEMY_SPRITE_PATHS.ghost)
+    this.load.image(TextureKeys.EnemyProjectile, ENEMY_SPRITE_PATHS.projectile)
 
     this.load.image(TextureKeys.Player, PLAYER_SPRITE_PATHS.normal)
     this.load.image(TextureKeys.PlayerInhaling, PLAYER_SPRITE_PATHS.inhaling)
@@ -43,23 +45,19 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image(TextureKeys.Boss, BOSS_SPRITE_PATHS.boss)
     this.load.image(TextureKeys.BossProjectile, BOSS_SPRITE_PATHS.projectile)
 
+    this.load.image(TextureKeys.Gem, 'assets/gem.png')
+
     const graphics = this.add.graphics({ x: 0, y: 0 })
 
-    graphics.fillStyle(0xff3333, 1)
-    graphics.fillCircle(6, 6, 6)
-    graphics.generateTexture(TextureKeys.EnemyProjectile, 12, 12)
-    graphics.clear()
-
-    graphics.fillStyle(0x00ffcc, 1)
-    graphics.fillCircle(12, 12, 12)
-    graphics.generateTexture(TextureKeys.Gem, 24, 24)
-    graphics.clear()
-
-    graphics.fillStyle(0x88ddff, 1)
-    graphics.fillCircle(12, 12, 12)
-    graphics.fillStyle(0xffffff, 1)
-    graphics.fillCircle(12, 8, 4)
-    graphics.generateTexture(TextureKeys.Diamond, 24, 24)
+    graphics.fillStyle(0xffff00, 1)
+    graphics.fillRect(0, 0, 32, 32)
+    graphics.lineStyle(2, 0xffe066)
+    graphics.strokeRect(0, 0, 32, 32)
+    graphics.lineStyle(1, 0xffd700)
+    for (let offset = 6; offset < 32; offset += 8) {
+      graphics.fillRect(0, offset, 32, 4)
+    }
+    graphics.generateTexture(TextureKeys.Platform, 32, 32)
     graphics.destroy()
   }
 

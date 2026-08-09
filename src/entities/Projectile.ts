@@ -2,8 +2,8 @@ import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
 
 const PROJECTILE_SPEED = 420
-const PROJECTILE_WIDTH = 30
-const PROJECTILE_HEIGHT = 40
+const PROJECTILE_WIDTH = 60
+const PROJECTILE_HEIGHT = 60
 
 export default class Projectile extends Phaser.Physics.Arcade.Sprite {
   bounceCount = 0

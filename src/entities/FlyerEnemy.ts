@@ -3,7 +3,6 @@ import { TextureKeys } from '../config/textureKeys'
 
 const FLY_SPEED = 70
 const FIRE_INTERVAL_MS = 2000
-const ALIGN_THRESHOLD = 40
 
 export interface FlyerBounds {
   minX: number
@@ -13,7 +12,7 @@ export interface FlyerBounds {
 }
 
 export type GetPlayerPosition = () => { x: number; y: number }
-export type FireEnemyProjectile = (x: number, y: number, direction: -1 | 1) => void
+export type FireEnemyProjectile = (x: number, y: number, targetX: number, targetY: number) => void
 
 export default class FlyerEnemy extends Enemy {
   private bounds: FlyerBounds
@@ -66,10 +65,7 @@ export default class FlyerEnemy extends Enemy {
     if (this.fireTimer >= FIRE_INTERVAL_MS) {
       this.fireTimer = 0
       const playerPos = this.getPlayerPosition()
-      if (Math.abs(playerPos.y - this.y) <= ALIGN_THRESHOLD) {
-        const direction: -1 | 1 = playerPos.x < this.x ? -1 : 1
-        this.fireProjectile(this.x, this.y, direction)
-      }
+      this.fireProjectile(this.x, this.y, playerPos.x, playerPos.y)
     }
   }
 }

@@ -11,4 +11,5 @@ export const TextureKeys = {
   BossProjectile: 'boss-projectile',
   Gem: 'gem',
   Diamond: 'diamond',
+  Platform: 'platform',
 }

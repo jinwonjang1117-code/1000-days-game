@@ -53,7 +53,7 @@ export const stages: StageConfig[] = [
     platforms: [
       GROUND,
       { x: 150, y: TIER1, width: 220 },
-      { x: 620, y: TIER1, width: 220 },
+      { x: 650, y: TIER1, width: 220 },
     ],
     enemies: [
       { type: 'normal', x: 150, y: TIER1 - 80 },
@@ -67,7 +67,7 @@ export const stages: StageConfig[] = [
     platforms: [
       GROUND,
       { x: 150, y: TIER1, width: 220 },
-      { x: 620, y: TIER1, width: 220 },
+      { x: 650, y: TIER1, width: 220 },
       { x: 400, y: TIER2, width: 260 },
     ],
     enemies: [
@@ -83,7 +83,7 @@ export const stages: StageConfig[] = [
     platforms: [
       GROUND,
       { x: 150, y: TIER1, width: 220 },
-      { x: 620, y: TIER1, width: 220 },
+      { x: 650, y: TIER1, width: 220 },
       { x: 400, y: TIER2, width: 260 },
       { x: 400, y: TIER3, width: 220 },
     ],
@@ -101,10 +101,10 @@ export const stages: StageConfig[] = [
     platforms: [
       GROUND,
       { x: 150, y: TIER1, width: 220 },
-      { x: 620, y: TIER1, width: 220 },
+      { x: 650, y: TIER1, width: 220 },
       { x: 400, y: TIER2, width: 260 },
       { x: 140, y: TIER3, width: 200 },
-      { x: 650, y: TIER3, width: 200 },
+      { x: 660, y: TIER3, width: 200 },
     ],
     enemies: [
       { type: 'normal', x: 150, y: TIER1 - 80 },
@@ -142,12 +142,12 @@ export const stages: StageConfig[] = [
     platforms: [
       GROUND,
       { x: 160, y: TIER1, width: 180 },
-      { x: 420, y: TIER1, width: 180 },
-      { x: 660, y: TIER1, width: 180 },
+      { x: 400, y: TIER1, width: 180 },
+      { x: 640, y: TIER1, width: 180 },
       { x: 280, y: TIER2, width: 200 },
-      { x: 560, y: TIER2, width: 200 },
-      { x: 420, y: TIER3, width: 220 },
-      { x: 420, y: TIER4, width: 200 },
+      { x: 520, y: TIER2, width: 200 },
+      { x: 400, y: TIER3, width: 220 },
+      { x: 400, y: TIER4, width: 200 },
     ],
     enemies: [
       { type: 'normal', x: 160, y: TIER1 - 80 },
@@ -164,13 +164,13 @@ export const stages: StageConfig[] = [
     platforms: [
       GROUND,
       { x: 140, y: TIER1, width: 170 },
-      { x: 420, y: TIER1, width: 170 },
-      { x: 680, y: TIER1, width: 170 },
+      { x: 400, y: TIER1, width: 170 },
+      { x: 660, y: TIER1, width: 170 },
       { x: 260, y: TIER2, width: 190 },
-      { x: 560, y: TIER2, width: 190 },
+      { x: 540, y: TIER2, width: 190 },
       { x: 140, y: TIER3, width: 170 },
-      { x: 680, y: TIER3, width: 170 },
-      { x: 420, y: TIER4, width: 220 },
+      { x: 660, y: TIER3, width: 170 },
+      { x: 400, y: TIER4, width: 220 },
     ],
     enemies: [
       { type: 'normal', x: 140, y: TIER1 - 80 },
@@ -194,9 +194,9 @@ export const stages: StageConfig[] = [
     platforms: [
       GROUND,
       { x: 585, y: TIER3, width: 370 },
-      { x: 130, y: TIER1, width: 180 },
+      { x: 160, y: TIER1, width: 180 },
       { x: 230, y: TIER2, width: 160 },
-      { x: 150, y: TIER3, width: 200 },
+      { x: 160, y: TIER3, width: 220 },
     ],
     enemies: [],
     isBossLevel: true,

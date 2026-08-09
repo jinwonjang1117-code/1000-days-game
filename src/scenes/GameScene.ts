@@ -15,7 +15,6 @@ import { PLATFORM_HEIGHT, GROUND_HEIGHT, findLandingPlatform } from '../config/p
 import type { EnemySpawnConfig } from '../config/stages'
 import { stages } from '../config/stages'
 
-const WALL_THICKNESS = 32
 const DAMAGE_INVINCIBILITY_MS = 1000
 const PATROL_EDGE_INSET = 40
 const CAPTURE_CHASE_SPEED = 700
@@ -32,16 +31,20 @@ const MINION_SPAWN_PICK_ATTEMPTS = 5
 const GROUND_LEVEL_THRESHOLD_Y = 500
 const GROUND_LEVEL_FIRE_Y = 500
 const TIER1_LEVEL_FIRE_Y = 380
+const SPEED_BOOST_PER_PICKUP = 10
+const PICKUP_SIZE = 50
 
 interface GameSceneData {
   stageIndex?: number
   score?: number
   playerHealth?: number
+  speedBonus?: number
 }
 
 export default class GameScene extends Phaser.Scene {
   public score = 0
   public playerHealth = 3
+  private speedBonus = 0
   private stageIndex = 0
   private stagePlatforms: PlatformConfig[] = []
   private stageCleared = false
@@ -49,7 +52,6 @@ export default class GameScene extends Phaser.Scene {
   private player!: Player
   private projectile?: Projectile
   private pickups!: Phaser.Physics.Arcade.Group
-  private walls!: Phaser.Physics.Arcade.StaticGroup
   private platforms!: Phaser.Physics.Arcade.StaticGroup
   private enemyGroup!: Phaser.GameObjects.Group
   private enemyProjectileGroup!: Phaser.GameObjects.Group
@@ -78,6 +80,7 @@ export default class GameScene extends Phaser.Scene {
     this.stageIndex = data?.stageIndex ?? 0
     this.score = data?.score ?? 0
     this.playerHealth = data?.playerHealth ?? 3
+    this.speedBonus = data?.speedBonus ?? 0
     this.capturingEnemy = null
     this.isPlayerInvincible = false
     this.isGameOver = false
@@ -98,18 +101,15 @@ export default class GameScene extends Phaser.Scene {
 
     this.platforms = this.physics.add.staticGroup()
     stage.platforms.forEach((config) => {
-      const platform = this.platforms.create(config.x, config.y, '') as Phaser.Physics.Arcade.Sprite
+      const platform = this.platforms.create(config.x, config.y, TextureKeys.Platform) as Phaser.Physics.Arcade.Sprite
       platform.setDisplaySize(config.width, config.height ?? PLATFORM_HEIGHT)
       platform.refreshBody()
     })
 
     this.player = new Player(this, stage.playerSpawnX ?? 400, 536)
+    this.player.setSpeedBonus(this.speedBonus)
 
     this.pickups = this.physics.add.group()
-    this.walls = this.physics.add.staticGroup()
-    this.walls.create(0, 300, '').setOrigin(0, 0.5).setDisplaySize(WALL_THICKNESS, 600).refreshBody()
-    this.walls.create(800 - WALL_THICKNESS, 300, '').setOrigin(0, 0.5).setDisplaySize(WALL_THICKNESS, 600).refreshBody()
-
     this.enemyGroup = this.add.group()
     this.enemyProjectileGroup = this.add.group()
     this.rainProjectileGroup = this.add.group()
@@ -129,7 +129,6 @@ export default class GameScene extends Phaser.Scene {
       this,
     )
     this.physics.add.collider(this.pickups, this.platforms)
-    this.physics.add.collider(this.pickups, this.walls)
 
     this.physics.add.collider(
       this.player,
@@ -176,7 +175,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.isGameOver) {
       if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
-        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3 })
+        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0 })
       }
       return
     }
@@ -232,8 +231,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private getPatrolBounds(x: number, y: number): { minX: number; maxX: number } {
-    const wallMinX = WALL_THICKNESS + PATROL_EDGE_INSET
-    const wallMaxX = 800 - WALL_THICKNESS - PATROL_EDGE_INSET
+    const wallMinX = PATROL_EDGE_INSET
+    const wallMaxX = 800 - PATROL_EDGE_INSET
     const platform = findLandingPlatform(this.stagePlatforms, x, y)
 
     if (!platform) {
@@ -250,8 +249,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private spawnEnemiesFromConfig(configs: EnemySpawnConfig[]) {
-    const minX = WALL_THICKNESS + PATROL_EDGE_INSET
-    const maxX = 800 - WALL_THICKNESS - PATROL_EDGE_INSET
+    const minX = PATROL_EDGE_INSET
+    const maxX = 800 - PATROL_EDGE_INSET
 
     configs.forEach((config) => {
       let enemy: Enemy
@@ -283,7 +282,7 @@ export default class GameScene extends Phaser.Scene {
             config.y,
             bounds,
             () => ({ x: this.player.x, y: this.player.y }),
-            (x, y, direction) => this.fireEnemyProjectile(x, y, direction),
+            (x, y, targetX, targetY) => this.fireEnemyProjectile(x, y, targetX, targetY),
           )
           break
         }
@@ -293,8 +292,9 @@ export default class GameScene extends Phaser.Scene {
     })
   }
 
-  private fireEnemyProjectile(x: number, y: number, direction: -1 | 1) {
-    const projectile = new EnemyProjectile(this, x, y, direction)
+  private fireEnemyProjectile(x: number, y: number, targetX: number, targetY: number) {
+    const direction: -1 | 1 = targetX < x ? -1 : 1
+    const projectile = new EnemyProjectile(this, x, y, direction, TextureKeys.EnemyProjectile, { x: targetX, y: targetY })
     this.enemyProjectileGroup.add(projectile)
   }
 
@@ -311,17 +311,11 @@ export default class GameScene extends Phaser.Scene {
     this.projectile.isBossMinionProjectile = this.heldEnemyIsBossMinion
     this.heldEnemyIsBossMinion = false
 
-    this.physics.add.collider(this.projectile, this.walls, this.handleProjectileWallCollision, undefined, this)
     this.physics.add.overlap(this.projectile, this.enemyGroup, this.handleProjectileEnemyCollision, undefined, this)
 
     if (this.boss) {
       this.physics.add.overlap(this.projectile, this.boss, this.handleProjectileBossCollision, undefined, this)
     }
-  }
-
-  private handleProjectileWallCollision(...args: unknown[]) {
-    const projectile = args[0] as Projectile
-    projectile?.bounceOffWall()
   }
 
   private handleProjectileEnemyCollision(...args: unknown[]) {
@@ -342,6 +336,7 @@ export default class GameScene extends Phaser.Scene {
 
   private spawnPickup(x: number, y: number) {
     const pickup = this.pickups.create(x, y, TextureKeys.Gem) as Phaser.Physics.Arcade.Image
+    pickup.setDisplaySize(PICKUP_SIZE, PICKUP_SIZE)
     pickup.setBounce(0.6)
     pickup.setCollideWorldBounds(true)
     pickup.setVelocity(Phaser.Math.Between(-100, 100), -250)
@@ -353,6 +348,9 @@ export default class GameScene extends Phaser.Scene {
   ) {
     const pickupSprite = pickup as Phaser.Physics.Arcade.Image
     pickupSprite.destroy()
+
+    this.speedBonus += SPEED_BOOST_PER_PICKUP
+    this.player.setSpeedBonus(this.speedBonus)
   }
 
   private handlePlayerEnemyContact(...args: unknown[]) {
@@ -419,7 +417,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (isFinalStage) {
       this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
-        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3 })
+        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0 })
       })
       return
     }
@@ -429,6 +427,7 @@ export default class GameScene extends Phaser.Scene {
         stageIndex: nextStageIndex,
         score: this.score,
         playerHealth: this.playerHealth,
+        speedBonus: this.speedBonus,
       })
     })
   }
@@ -463,7 +462,7 @@ export default class GameScene extends Phaser.Scene {
     // player's climbable staircase (up to x=310), which stays clear of the
     // boss's patrol so a low TIER1 step there never clips through it.
     const arenaMinX = 400
-    const arenaMaxX = 800 - WALL_THICKNESS - BOSS_HALF_WIDTH - BOSS_ARENA_MARGIN
+    const arenaMaxX = 800 - BOSS_HALF_WIDTH - BOSS_ARENA_MARGIN
 
     this.boss = new BossEnemy(
       this,
@@ -501,8 +500,8 @@ export default class GameScene extends Phaser.Scene {
     let y: number
 
     if (targetGround) {
-      const minX = WALL_THICKNESS + PATROL_EDGE_INSET
-      const maxX = 800 - WALL_THICKNESS - PATROL_EDGE_INSET
+      const minX = PATROL_EDGE_INSET
+      const maxX = 800 - PATROL_EDGE_INSET
       x = this.pickXAwayFromPlayer(minX, maxX)
       y = GROUND_ENEMY_SPAWN_Y
     } else {
@@ -526,8 +525,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private startRainAttack() {
-    const minX = WALL_THICKNESS + PATROL_EDGE_INSET
-    const maxX = 800 - WALL_THICKNESS - PATROL_EDGE_INSET
+    const minX = PATROL_EDGE_INSET
+    const maxX = 800 - PATROL_EDGE_INSET
     const segmentWidth = (maxX - minX) / RAIN_PROJECTILE_COUNT
 
     // Divide the width into one segment per drop (guaranteeing full spread)

@@ -26,6 +26,8 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   private heldEnemy = false
   private spaceKey: Phaser.Input.Keyboard.Key
   private spitRequested = false
+  private awaitingSpaceRelease = false
+  private speedBonus = 0
   private inhaleZone: Phaser.GameObjects.Zone
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
@@ -53,7 +55,12 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   update(cursors: Phaser.Types.Input.Keyboard.CursorKeys) {
     const leftDown = cursors.left?.isDown ?? false
     const rightDown = cursors.right?.isDown ?? false
-    const inhaleDown = this.spaceKey.isDown && this.state !== PlayerState.FULL
+
+    if (this.awaitingSpaceRelease && !this.spaceKey.isDown) {
+      this.awaitingSpaceRelease = false
+    }
+
+    const inhaleDown = !this.awaitingSpaceRelease && this.spaceKey.isDown && this.state !== PlayerState.FULL
 
     const body = this.body as Phaser.Physics.Arcade.Body
     const isGrounded = body.blocked.down || body.touching.down
@@ -118,6 +125,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   releaseFull() {
     this.heldEnemy = false
     this.state = PlayerState.IDLE
+    this.awaitingSpaceRelease = true
   }
 
   getFacingDirection(): -1 | 1 {
@@ -143,6 +151,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     return this.state === PlayerState.FULL
   }
 
+  setSpeedBonus(amount: number) {
+    this.speedBonus = amount
+  }
+
   private activateInhaleZone() {
     this.inhaleZone.setVisible(true)
   }
@@ -159,9 +171,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   }
 
   private getCurrentSpeed(): number {
+    const baseSpeed = PLAYER_SPEED + this.speedBonus
     return this.state === PlayerState.FULL
-      ? PLAYER_SPEED * FULL_SPEED_MULTIPLIER
-      : PLAYER_SPEED
+      ? baseSpeed * FULL_SPEED_MULTIPLIER
+      : baseSpeed
   }
 
   private getTextureKeyForState(): string {
