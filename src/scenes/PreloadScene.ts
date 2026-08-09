@@ -57,6 +57,21 @@ export default class PreloadScene extends Phaser.Scene {
     graphics.generateTexture(TextureKeys.Projectile, 32, 38)
     graphics.clear()
 
+    graphics.fillStyle(0xffffff, 0.85)
+    graphics.fillCircle(12, 12, 12)
+    graphics.generateTexture(TextureKeys.Ghost, 24, 24)
+    graphics.clear()
+
+    graphics.fillStyle(0xff8800, 1)
+    graphics.fillTriangle(0, 20, 20, 20, 10, 0)
+    graphics.generateTexture(TextureKeys.Flyer, 20, 20)
+    graphics.clear()
+
+    graphics.fillStyle(0xff3333, 1)
+    graphics.fillCircle(6, 6, 6)
+    graphics.generateTexture(TextureKeys.EnemyProjectile, 12, 12)
+    graphics.clear()
+
     graphics.fillStyle(0x00ffcc, 1)
     graphics.fillCircle(12, 12, 12)
     graphics.generateTexture(TextureKeys.Gem, 24, 24)

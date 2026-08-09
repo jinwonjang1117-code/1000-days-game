@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
+import { WORLD_GRAVITY_Y } from '../config/physics'
 
 export const PlayerState = {
   IDLE: 'idle',
@@ -13,7 +14,7 @@ export type PlayerStateType = 'idle' | 'moving' | 'inhaling' | 'full'
 const PLAYER_HEIGHT = 48
 const PLAYER_SPEED = 240
 const FULL_SPEED_MULTIPLIER = 0.5
-const GRAVITY_Y = 800
+const JUMP_VELOCITY = 640
 const INHALE_ZONE_WIDTH = 120
 const INHALE_ZONE_HEIGHT = 64
 const INHALE_OFFSET = 56
@@ -42,7 +43,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       .setVisible(false)
 
     this.setCollideWorldBounds(true)
-    this.setGravityY(GRAVITY_Y)
+    this.setGravityY(WORLD_GRAVITY_Y)
     this.setBounce(0)
     this.setOrigin(0.5, 1)
     this.setScale(1)
@@ -52,6 +53,12 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     const leftDown = cursors.left?.isDown ?? false
     const rightDown = cursors.right?.isDown ?? false
     const inhaleDown = this.spaceKey.isDown && this.state !== PlayerState.FULL
+
+    const body = this.body as Phaser.Physics.Arcade.Body
+    const isGrounded = body.blocked.down || body.touching.down
+    if (cursors.up && Phaser.Input.Keyboard.JustDown(cursors.up) && isGrounded) {
+      this.setVelocityY(-JUMP_VELOCITY)
+    }
 
     if (leftDown) {
       this.lastDirection = -1

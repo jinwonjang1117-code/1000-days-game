@@ -1,54 +1,107 @@
 import Phaser from 'phaser'
 import Player from '../entities/Player'
 import Projectile from '../entities/Projectile'
+import Enemy from '../entities/Enemy'
+import NormalEnemy from '../entities/NormalEnemy'
+import FastEnemy from '../entities/FastEnemy'
+import GhostEnemy from '../entities/GhostEnemy'
+import FlyerEnemy from '../entities/FlyerEnemy'
+import EnemyProjectile from '../entities/EnemyProjectile'
 import { TextureKeys } from '../config/textureKeys'
+import type { PlatformConfig } from '../config/platformLayout'
+import { PLATFORM_HEIGHT, findLandingPlatform } from '../config/platformLayout'
+import type { EnemySpawnConfig } from '../config/stages'
+import { stages } from '../config/stages'
 
-const GRAVITY_Y = 800
 const WALL_THICKNESS = 32
+const DAMAGE_INVINCIBILITY_MS = 1000
+const PATROL_EDGE_INSET = 20
+const CAPTURE_CHASE_SPEED = 700
+const STAGE_TRANSITION_DELAY_MS = 1500
+
+interface GameSceneData {
+  stageIndex?: number
+  score?: number
+  playerHealth?: number
+}
 
 export default class GameScene extends Phaser.Scene {
   public score = 0
+  public playerHealth = 3
+  private stageIndex = 0
+  private stagePlatforms: PlatformConfig[] = []
+  private stageCleared = false
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
   private player!: Player
-  private enemy!: Phaser.Physics.Arcade.Sprite
   private projectile?: Projectile
   private pickups!: Phaser.Physics.Arcade.Group
   private walls!: Phaser.Physics.Arcade.StaticGroup
-  private isCapturingEnemy = false
+  private platforms!: Phaser.Physics.Arcade.StaticGroup
+  private enemyGroup!: Phaser.GameObjects.Group
+  private enemyProjectileGroup!: Phaser.GameObjects.Group
+  private capturingEnemy: Enemy | null = null
+  private isPlayerInvincible = false
+  private isGameOver = false
+  private restartKey!: Phaser.Input.Keyboard.Key
 
   constructor() {
     super({ key: 'GameScene' })
   }
 
-  create() {
+  public get stageNumber(): number {
+    return this.stageIndex + 1
+  }
+
+  public get stageCount(): number {
+    return stages.length
+  }
+
+  create(data: GameSceneData) {
+    this.stageIndex = data?.stageIndex ?? 0
+    this.score = data?.score ?? 0
+    this.playerHealth = data?.playerHealth ?? 3
+    this.capturingEnemy = null
+    this.isPlayerInvincible = false
+    this.isGameOver = false
+    this.stageCleared = false
+    this.projectile = undefined
+
+    const stage = stages[this.stageIndex]
+    this.stagePlatforms = stage.platforms
+
     this.scene.launch('UIScene')
 
     this.cameras.main.setBackgroundColor('#1a1a2e')
 
     this.physics.world.setBounds(0, 0, 800, 600)
 
-    const ground = this.physics.add.staticSprite(400, 580, '')
-    ground.setDisplaySize(800, 40)
-    ground.refreshBody()
+    this.platforms = this.physics.add.staticGroup()
+    stage.platforms.forEach((config) => {
+      const platform = this.platforms.create(config.x, config.y, '') as Phaser.Physics.Arcade.Sprite
+      platform.setDisplaySize(config.width, config.height ?? PLATFORM_HEIGHT)
+      platform.refreshBody()
+    })
 
     this.player = new Player(this, 400, 536)
-    this.player.setCollideWorldBounds(true)
-    this.player.setGravityY(GRAVITY_Y)
-    this.player.setBounce(0)
-
-    this.enemy = this.physics.add.sprite(500, 520, TextureKeys.Enemy)
-    this.enemy.setImmovable(true)
-    this.enemy.setGravityY(0)
 
     this.pickups = this.physics.add.group()
     this.walls = this.physics.add.staticGroup()
     this.walls.create(0, 300, '').setOrigin(0, 0.5).setDisplaySize(WALL_THICKNESS, 600).refreshBody()
     this.walls.create(800 - WALL_THICKNESS, 300, '').setOrigin(0, 0.5).setDisplaySize(WALL_THICKNESS, 600).refreshBody()
 
-    this.physics.add.collider(this.player, ground)
-    this.physics.add.collider(this.enemy, ground)
-    this.physics.add.collider(this.pickups, ground)
+    this.enemyGroup = this.add.group()
+    this.enemyProjectileGroup = this.add.group()
+    this.spawnEnemiesFromConfig(stage.enemies)
 
+    this.physics.add.collider(this.player, this.platforms)
+    this.physics.add.collider(
+      this.enemyGroup,
+      this.platforms,
+      undefined,
+      (enemyObj) => (enemyObj as Enemy).collidesWithPlatforms,
+      this,
+    )
+    this.physics.add.collider(this.pickups, this.platforms)
     this.physics.add.collider(this.pickups, this.walls)
 
     this.physics.add.collider(
@@ -60,36 +113,71 @@ export default class GameScene extends Phaser.Scene {
       undefined,
       this,
     )
-    this.physics.add.collider(
-      this.enemy,
-      this.walls,
-      (enemy: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody | Phaser.Tilemaps.Tile,
-       wall: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody | Phaser.Tilemaps.Tile) =>
-        this.handleEnemyWallCollision(enemy, wall),
+
+    this.physics.add.overlap(
+      this.player,
+      this.enemyGroup,
+      this.handlePlayerEnemyContact,
+      undefined,
+      this,
+    )
+
+    this.physics.add.overlap(
+      this.player,
+      this.enemyProjectileGroup,
+      this.handlePlayerProjectileContact,
       undefined,
       this,
     )
 
     this.cursors = this.input.keyboard!.createCursorKeys()
+    this.restartKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
   }
 
-  update() {
+  update(time: number, delta: number) {
     if (!this.cursors) {
+      return
+    }
+
+    if (this.isGameOver) {
+      if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
+        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3 })
+      }
       return
     }
 
     this.player.update(this.cursors)
 
-    if (
-      this.player.isInhaling() &&
-      !this.isCapturingEnemy &&
-      this.enemy.active
-    ) {
-      const inhaleBounds = this.player.getInhaleZone().getBounds()
-      const enemyBounds = this.enemy.getBounds()
+    const enemies = this.enemyGroup.getChildren() as Enemy[]
+    for (const enemy of enemies) {
+      if (enemy === this.capturingEnemy) {
+        continue
+      }
+      enemy.updateBehavior(time, delta)
+    }
 
-      if (Phaser.Geom.Intersects.RectangleToRectangle(inhaleBounds, enemyBounds)) {
-        this.startEnemyCapture(this.enemy)
+    if (this.capturingEnemy) {
+      this.updateEnemyCapture(this.capturingEnemy)
+    }
+
+    const enemyProjectiles = this.enemyProjectileGroup.getChildren() as EnemyProjectile[]
+    for (const enemyProjectile of enemyProjectiles) {
+      if (enemyProjectile.x < -50 || enemyProjectile.x > 850) {
+        enemyProjectile.destroy()
+      }
+    }
+
+    if (this.player.isInhaling() && !this.capturingEnemy) {
+      const inhaleBounds = this.player.getInhaleZone().getBounds()
+
+      for (const enemy of enemies) {
+        if (!enemy.active || !enemy.canBeInhaled) {
+          continue
+        }
+        if (Phaser.Geom.Intersects.RectangleToRectangle(inhaleBounds, enemy.getBounds())) {
+          this.startEnemyCapture(enemy)
+          break
+        }
       }
     }
 
@@ -97,6 +185,73 @@ export default class GameScene extends Phaser.Scene {
       this.spawnProjectile()
       this.player.releaseFull()
     }
+  }
+
+  private getPatrolBounds(x: number, y: number): { minX: number; maxX: number } {
+    const wallMinX = WALL_THICKNESS + PATROL_EDGE_INSET
+    const wallMaxX = 800 - WALL_THICKNESS - PATROL_EDGE_INSET
+    const platform = findLandingPlatform(this.stagePlatforms, x, y)
+
+    if (!platform) {
+      return {
+        minX: Phaser.Math.Clamp(x - 100, wallMinX, wallMaxX),
+        maxX: Phaser.Math.Clamp(x + 100, wallMinX, wallMaxX),
+      }
+    }
+
+    return {
+      minX: Phaser.Math.Clamp(platform.x - platform.width / 2 + PATROL_EDGE_INSET, wallMinX, wallMaxX),
+      maxX: Phaser.Math.Clamp(platform.x + platform.width / 2 - PATROL_EDGE_INSET, wallMinX, wallMaxX),
+    }
+  }
+
+  private spawnEnemiesFromConfig(configs: EnemySpawnConfig[]) {
+    const minX = WALL_THICKNESS + 20
+    const maxX = 800 - WALL_THICKNESS - 20
+
+    configs.forEach((config) => {
+      let enemy: Enemy
+
+      switch (config.type) {
+        case 'normal': {
+          const bounds = this.getPatrolBounds(config.x, config.y)
+          enemy = new NormalEnemy(this, config.x, config.y, bounds.minX, bounds.maxX)
+          break
+        }
+        case 'fast': {
+          const bounds = this.getPatrolBounds(config.x, config.y)
+          enemy = new FastEnemy(this, config.x, config.y, bounds.minX, bounds.maxX)
+          break
+        }
+        case 'ghost':
+          enemy = new GhostEnemy(this, config.x, config.y)
+          break
+        case 'flyer': {
+          const bounds = {
+            minX: Phaser.Math.Clamp(config.x - 150, minX, maxX),
+            maxX: Phaser.Math.Clamp(config.x + 150, minX, maxX),
+            minY: 140,
+            maxY: 300,
+          }
+          enemy = new FlyerEnemy(
+            this,
+            config.x,
+            config.y,
+            bounds,
+            () => ({ x: this.player.x, y: this.player.y }),
+            (x, y, direction) => this.fireEnemyProjectile(x, y, direction),
+          )
+          break
+        }
+      }
+
+      this.enemyGroup.add(enemy)
+    })
+  }
+
+  private fireEnemyProjectile(x: number, y: number, direction: -1 | 1) {
+    const projectile = new EnemyProjectile(this, x, y, direction)
+    this.enemyProjectileGroup.add(projectile)
   }
 
   private spawnProjectile() {
@@ -110,7 +265,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.projectile = new Projectile(this, projectileX, projectileY, direction)
     this.physics.add.collider(this.projectile, this.walls, this.handleProjectileWallCollision, undefined, this)
-    this.physics.add.collider(this.projectile, this.enemy, this.handleProjectileEnemyCollision, undefined, this)
+    this.physics.add.overlap(this.projectile, this.enemyGroup, this.handleProjectileEnemyCollision, undefined, this)
   }
 
   private handleProjectileWallCollision(...args: unknown[]) {
@@ -120,13 +275,18 @@ export default class GameScene extends Phaser.Scene {
 
   private handleProjectileEnemyCollision(...args: unknown[]) {
     const projectile = args[0] as Projectile
-    const enemy = args[1] as Phaser.Physics.Arcade.Sprite
+    const enemy = args[1] as Enemy
+
+    if (enemy === this.capturingEnemy) {
+      return
+    }
 
     projectile?.destroy()
     enemy?.destroy()
     this.spawnPickup(this.player.x, this.player.y - 24)
     this.score += 100
-    console.log('Score:', this.score)
+    this.events.emit('scoreChanged', this.score)
+    this.checkStageClear()
   }
 
   private spawnPickup(x: number, y: number) {
@@ -144,39 +304,105 @@ export default class GameScene extends Phaser.Scene {
     pickupSprite.destroy()
   }
 
-  private handleEnemyWallCollision(
-    _enemy: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody | Phaser.Tilemaps.Tile,
-    _wall: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody | Phaser.Tilemaps.Tile,
-  ) {
-    const enemySprite = _enemy as Phaser.Physics.Arcade.Sprite
-    if (!enemySprite.body) {
+  private handlePlayerEnemyContact(...args: unknown[]) {
+    const enemy = args[1] as Enemy
+    if (enemy === this.capturingEnemy) {
       return
     }
-    enemySprite.setVelocityX(-enemySprite.body.velocity.x)
+    this.takeDamage()
   }
 
-  private startEnemyCapture(enemy?: Phaser.Physics.Arcade.Sprite) {
-    if (this.isCapturingEnemy || this.player.isFull()) {
+  private handlePlayerProjectileContact(...args: unknown[]) {
+    const enemyProjectile = args[1] as EnemyProjectile
+    enemyProjectile?.destroy()
+    this.takeDamage()
+  }
+
+  private takeDamage() {
+    if (this.isPlayerInvincible || this.isGameOver) {
       return
     }
 
-    const target = enemy ?? this.enemy
-    if (!target.active) {
+    this.playerHealth = Math.max(0, this.playerHealth - 1)
+    this.events.emit('healthChanged', this.playerHealth)
+
+    if (this.playerHealth === 0) {
+      this.handleGameOver()
       return
     }
 
-    this.isCapturingEnemy = true
+    this.isPlayerInvincible = true
 
     this.tweens.add({
-      targets: target,
-      x: this.player.x,
-      y: this.player.y,
-      duration: 300,
-      ease: 'Power2',
+      targets: this.player,
+      alpha: 0.2,
+      duration: 100,
+      yoyo: true,
+      repeat: 4,
       onComplete: () => {
-        this.player.captureEnemy(target)
-        this.isCapturingEnemy = false
+        this.player.setAlpha(1)
       },
     })
+
+    this.time.delayedCall(DAMAGE_INVINCIBILITY_MS, () => {
+      this.isPlayerInvincible = false
+    })
+  }
+
+  private handleGameOver() {
+    this.isGameOver = true
+    this.physics.world.pause()
+    this.events.emit('gameOver', this.score)
+  }
+
+  private checkStageClear() {
+    if (this.stageCleared || this.enemyGroup.countActive(true) > 0) {
+      return
+    }
+
+    this.stageCleared = true
+    const nextStageIndex = this.stageIndex + 1
+    const isFinalStage = nextStageIndex >= stages.length
+
+    this.events.emit('stageCleared', { isFinalStage })
+
+    if (isFinalStage) {
+      this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
+        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3 })
+      })
+      return
+    }
+
+    this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
+      this.scene.restart({
+        stageIndex: nextStageIndex,
+        score: this.score,
+        playerHealth: this.playerHealth,
+      })
+    })
+  }
+
+  private startEnemyCapture(enemy: Enemy) {
+    if (this.capturingEnemy || this.player.isFull() || !enemy.canBeInhaled) {
+      return
+    }
+
+    this.capturingEnemy = enemy
+
+    const enemyBody = enemy.body as Phaser.Physics.Arcade.Body | null
+    enemyBody?.setAllowGravity(false)
+  }
+
+  private updateEnemyCapture(enemy: Enemy) {
+    if (Phaser.Geom.Intersects.RectangleToRectangle(enemy.getBounds(), this.player.getBounds())) {
+      const enemyBody = enemy.body as Phaser.Physics.Arcade.Body | null
+      enemyBody?.setVelocity(0, 0)
+      this.player.captureEnemy(enemy)
+      this.capturingEnemy = null
+      this.checkStageClear()
+      return
+    }
+
+    this.physics.moveToObject(enemy, this.player, CAPTURE_CHASE_SPEED)
   }
 }
