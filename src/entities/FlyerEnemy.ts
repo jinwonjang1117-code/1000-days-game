@@ -37,6 +37,7 @@ export default class FlyerEnemy extends Enemy {
     this.canBeInhaled = true
     this.collidesWithPlatforms = false
 
+    this.setDisplaySize(48, 48)
     this.setGravityY(0)
     this.setVelocity(FLY_SPEED, FLY_SPEED * 0.6)
   }
@@ -58,6 +59,8 @@ export default class FlyerEnemy extends Enemy {
     } else if (this.y >= this.bounds.maxY && body.velocity.y > 0) {
       body.velocity.y = -Math.abs(body.velocity.y)
     }
+
+    this.setFlipX(body.velocity.x < 0)
 
     this.fireTimer += delta
     if (this.fireTimer >= FIRE_INTERVAL_MS) {

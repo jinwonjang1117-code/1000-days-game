@@ -5,6 +5,7 @@ const PROJECTILE_SPEED = 420
 
 export default class Projectile extends Phaser.Physics.Arcade.Sprite {
   bounceCount = 0
+  isBossMinionProjectile = false
 
   constructor(scene: Phaser.Scene, x: number, y: number, direction: -1 | 1) {
     super(scene, x, y, TextureKeys.Projectile)

@@ -1,22 +1,31 @@
 import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
 
+// Real sprites go in public/assets/ under these exact filenames — drop them in
+// and reload, no code changes needed. Loaded as runtime string paths (not JS
+// imports) so a missing file just falls back to Phaser's placeholder texture
+// instead of breaking the dev server / build.
+const ENEMY_SPRITE_PATHS = {
+  normal: 'assets/enemy-normal.png',
+  flying: 'assets/enemy-flying.png',
+  ghost: 'assets/enemy-ghost.png',
+}
+
 export default class PreloadScene extends Phaser.Scene {
   constructor() {
     super({ key: 'PreloadScene' })
   }
 
   preload() {
+    this.load.image(TextureKeys.Enemy, ENEMY_SPRITE_PATHS.normal)
+    this.load.image(TextureKeys.Flyer, ENEMY_SPRITE_PATHS.flying)
+    this.load.image(TextureKeys.Ghost, ENEMY_SPRITE_PATHS.ghost)
+
     const graphics = this.add.graphics({ x: 0, y: 0 })
 
     graphics.fillStyle(0x0000ff, 1)
     graphics.fillRect(0, 0, 32, 48)
     graphics.generateTexture(TextureKeys.Player, 32, 48)
-    graphics.clear()
-
-    graphics.fillStyle(0xff0000, 1)
-    graphics.fillRect(0, 0, 24, 24)
-    graphics.generateTexture(TextureKeys.Enemy, 24, 24)
     graphics.clear()
 
     graphics.fillStyle(0xffff00, 1)
@@ -57,16 +66,6 @@ export default class PreloadScene extends Phaser.Scene {
     graphics.generateTexture(TextureKeys.Projectile, 32, 38)
     graphics.clear()
 
-    graphics.fillStyle(0xffffff, 0.85)
-    graphics.fillCircle(12, 12, 12)
-    graphics.generateTexture(TextureKeys.Ghost, 24, 24)
-    graphics.clear()
-
-    graphics.fillStyle(0xff8800, 1)
-    graphics.fillTriangle(0, 20, 20, 20, 10, 0)
-    graphics.generateTexture(TextureKeys.Flyer, 20, 20)
-    graphics.clear()
-
     graphics.fillStyle(0xff3333, 1)
     graphics.fillCircle(6, 6, 6)
     graphics.generateTexture(TextureKeys.EnemyProjectile, 12, 12)
@@ -82,6 +81,13 @@ export default class PreloadScene extends Phaser.Scene {
     graphics.fillStyle(0xffffff, 1)
     graphics.fillCircle(12, 8, 4)
     graphics.generateTexture(TextureKeys.Diamond, 24, 24)
+    graphics.clear()
+
+    graphics.fillStyle(0x5a1030, 1)
+    graphics.fillRect(0, 0, 96, 96)
+    graphics.fillStyle(0x8a1c4a, 1)
+    graphics.fillRect(8, 8, 80, 80)
+    graphics.generateTexture(TextureKeys.Boss, 96, 96)
     graphics.destroy()
   }
 

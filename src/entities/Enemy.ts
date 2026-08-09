@@ -3,6 +3,7 @@ import Phaser from 'phaser'
 export default abstract class Enemy extends Phaser.Physics.Arcade.Sprite {
   canBeInhaled = true
   collidesWithPlatforms = true
+  isBossMinion = false
 
   constructor(scene: Phaser.Scene, x: number, y: number, texture: string) {
     super(scene, x, y, texture)

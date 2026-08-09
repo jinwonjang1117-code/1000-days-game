@@ -7,6 +7,7 @@ import FastEnemy from '../entities/FastEnemy'
 import GhostEnemy from '../entities/GhostEnemy'
 import FlyerEnemy from '../entities/FlyerEnemy'
 import EnemyProjectile from '../entities/EnemyProjectile'
+import BossEnemy from '../entities/BossEnemy'
 import { TextureKeys } from '../config/textureKeys'
 import type { PlatformConfig } from '../config/platformLayout'
 import { PLATFORM_HEIGHT, findLandingPlatform } from '../config/platformLayout'
@@ -15,7 +16,7 @@ import { stages } from '../config/stages'
 
 const WALL_THICKNESS = 32
 const DAMAGE_INVINCIBILITY_MS = 1000
-const PATROL_EDGE_INSET = 20
+const PATROL_EDGE_INSET = 30
 const CAPTURE_CHASE_SPEED = 700
 const STAGE_TRANSITION_DELAY_MS = 1500
 
@@ -43,6 +44,9 @@ export default class GameScene extends Phaser.Scene {
   private isPlayerInvincible = false
   private isGameOver = false
   private restartKey!: Phaser.Input.Keyboard.Key
+  private isBossLevel = false
+  private boss?: BossEnemy
+  private heldEnemyIsBossMinion = false
 
   constructor() {
     super({ key: 'GameScene' })
@@ -65,9 +69,12 @@ export default class GameScene extends Phaser.Scene {
     this.isGameOver = false
     this.stageCleared = false
     this.projectile = undefined
+    this.boss = undefined
+    this.heldEnemyIsBossMinion = false
 
     const stage = stages[this.stageIndex]
     this.stagePlatforms = stage.platforms
+    this.isBossLevel = stage.isBossLevel ?? false
 
     this.scene.launch('UIScene')
 
@@ -91,7 +98,12 @@ export default class GameScene extends Phaser.Scene {
 
     this.enemyGroup = this.add.group()
     this.enemyProjectileGroup = this.add.group()
-    this.spawnEnemiesFromConfig(stage.enemies)
+
+    if (this.isBossLevel) {
+      this.startBossEncounter()
+    } else {
+      this.spawnEnemiesFromConfig(stage.enemies)
+    }
 
     this.physics.add.collider(this.player, this.platforms)
     this.physics.add.collider(
@@ -160,6 +172,8 @@ export default class GameScene extends Phaser.Scene {
       this.updateEnemyCapture(this.capturingEnemy)
     }
 
+    this.boss?.updateBehavior(time, delta)
+
     const enemyProjectiles = this.enemyProjectileGroup.getChildren() as EnemyProjectile[]
     for (const enemyProjectile of enemyProjectiles) {
       if (enemyProjectile.x < -50 || enemyProjectile.x > 850) {
@@ -206,8 +220,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private spawnEnemiesFromConfig(configs: EnemySpawnConfig[]) {
-    const minX = WALL_THICKNESS + 20
-    const maxX = 800 - WALL_THICKNESS - 20
+    const minX = WALL_THICKNESS + PATROL_EDGE_INSET
+    const maxX = 800 - WALL_THICKNESS - PATROL_EDGE_INSET
 
     configs.forEach((config) => {
       let enemy: Enemy
@@ -264,8 +278,15 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.projectile = new Projectile(this, projectileX, projectileY, direction)
+    this.projectile.isBossMinionProjectile = this.heldEnemyIsBossMinion
+    this.heldEnemyIsBossMinion = false
+
     this.physics.add.collider(this.projectile, this.walls, this.handleProjectileWallCollision, undefined, this)
     this.physics.add.overlap(this.projectile, this.enemyGroup, this.handleProjectileEnemyCollision, undefined, this)
+
+    if (this.boss) {
+      this.physics.add.overlap(this.projectile, this.boss, this.handleProjectileBossCollision, undefined, this)
+    }
   }
 
   private handleProjectileWallCollision(...args: unknown[]) {
@@ -356,7 +377,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private checkStageClear() {
-    if (this.stageCleared || this.enemyGroup.countActive(true) > 0) {
+    if (this.isBossLevel || this.stageCleared || this.enemyGroup.countActive(true) > 0) {
       return
     }
 
@@ -397,6 +418,7 @@ export default class GameScene extends Phaser.Scene {
     if (Phaser.Geom.Intersects.RectangleToRectangle(enemy.getBounds(), this.player.getBounds())) {
       const enemyBody = enemy.body as Phaser.Physics.Arcade.Body | null
       enemyBody?.setVelocity(0, 0)
+      this.heldEnemyIsBossMinion = enemy.isBossMinion
       this.player.captureEnemy(enemy)
       this.capturingEnemy = null
       this.checkStageClear()
@@ -404,5 +426,55 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.physics.moveToObject(enemy, this.player, CAPTURE_CHASE_SPEED)
+  }
+
+  private startBossEncounter() {
+    const arenaMinX = WALL_THICKNESS + PATROL_EDGE_INSET
+    const arenaMaxX = 800 - WALL_THICKNESS - PATROL_EDGE_INSET
+
+    this.boss = new BossEnemy(
+      this,
+      400,
+      280,
+      { minX: arenaMinX, maxX: arenaMaxX },
+      () => ({ x: this.player.x, y: this.player.y }),
+      (x, y) => this.spawnBossMinion(x, y),
+      (x, y, direction) => this.fireEnemyProjectile(x, y, direction),
+      () => this.handleBossDefeated(),
+    )
+
+    this.physics.add.overlap(this.player, this.boss, this.handlePlayerBossContact, undefined, this)
+  }
+
+  private spawnBossMinion(x: number, y: number) {
+    const bounds = this.getPatrolBounds(x, y)
+    const minion = new NormalEnemy(this, x, y, bounds.minX, bounds.maxX)
+    minion.isBossMinion = true
+    this.enemyGroup.add(minion)
+  }
+
+  private handlePlayerBossContact() {
+    this.takeDamage()
+  }
+
+  private handleProjectileBossCollision(...args: unknown[]) {
+    const projectile = args[0] as Projectile
+
+    if (!projectile?.isBossMinionProjectile) {
+      return
+    }
+
+    projectile.destroy()
+    this.boss?.takeDamage()
+  }
+
+  private handleBossDefeated() {
+    this.stageCleared = true
+    this.boss = undefined
+    this.events.emit('stageCleared', { isFinalStage: true })
+
+    this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
+      this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3 })
+    })
   }
 }

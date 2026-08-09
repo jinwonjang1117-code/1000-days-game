@@ -73,7 +73,7 @@ export default class UIScene extends Phaser.Scene {
   private handleStageCleared(payload: StageClearedPayload) {
     this.overlayBackground.setVisible(true)
     this.overlayTitleText.setText(payload.isFinalStage ? '게임 클리어!' : '스테이지 완료!').setVisible(true)
-    this.overlaySubtitleText.setText(`Score: ${this.gameScene.score}`).setVisible(true)
+    this.overlaySubtitleText.setText(`점수: ${this.gameScene.score}`).setVisible(true)
   }
 
   private handleGameOver(finalScore: number) {

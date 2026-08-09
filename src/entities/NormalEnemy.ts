@@ -23,6 +23,7 @@ export default class NormalEnemy extends Enemy {
     this.maxX = maxX
     this.canBeInhaled = true
 
+    this.setDisplaySize(48, 48)
     this.setGravityY(WORLD_GRAVITY_Y)
     this.setCollideWorldBounds(true)
     this.setVelocityX(speed)
@@ -39,5 +40,7 @@ export default class NormalEnemy extends Enemy {
     } else if (this.x >= this.maxX && body.velocity.x > 0) {
       body.velocity.x = -Math.abs(body.velocity.x)
     }
+
+    this.setFlipX(body.velocity.x < 0)
   }
 }

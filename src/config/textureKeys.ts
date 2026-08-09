@@ -5,6 +5,7 @@ export const TextureKeys = {
   Flyer: 'flyer',
   EnemyProjectile: 'enemyProjectile',
   Projectile: 'projectile',
+  Boss: 'boss',
   Gem: 'gem',
   Diamond: 'diamond',
 }
