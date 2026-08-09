@@ -8,6 +8,7 @@ export const TextureKeys = {
   EnemyProjectile: 'enemyProjectile',
   Projectile: 'projectile',
   Boss: 'boss',
+  BossProjectile: 'boss-projectile',
   Gem: 'gem',
   Diamond: 'diamond',
 }

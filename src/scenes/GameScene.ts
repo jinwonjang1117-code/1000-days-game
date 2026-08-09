@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import Player from '../entities/Player'
+import Player, { PLAYER_HEIGHT } from '../entities/Player'
 import Projectile from '../entities/Projectile'
 import Enemy from '../entities/Enemy'
 import NormalEnemy from '../entities/NormalEnemy'
@@ -8,9 +8,10 @@ import GhostEnemy from '../entities/GhostEnemy'
 import FlyerEnemy from '../entities/FlyerEnemy'
 import EnemyProjectile from '../entities/EnemyProjectile'
 import BossEnemy from '../entities/BossEnemy'
+import RainProjectile from '../entities/RainProjectile'
 import { TextureKeys } from '../config/textureKeys'
 import type { PlatformConfig } from '../config/platformLayout'
-import { PLATFORM_HEIGHT, findLandingPlatform } from '../config/platformLayout'
+import { PLATFORM_HEIGHT, GROUND_HEIGHT, findLandingPlatform } from '../config/platformLayout'
 import type { EnemySpawnConfig } from '../config/stages'
 import { stages } from '../config/stages'
 
@@ -19,6 +20,18 @@ const DAMAGE_INVINCIBILITY_MS = 1000
 const PATROL_EDGE_INSET = 40
 const CAPTURE_CHASE_SPEED = 700
 const STAGE_TRANSITION_DELAY_MS = 1500
+const GROUND_ENEMY_SPAWN_Y = 490
+const ELEVATED_ENEMY_SPAWN_OFFSET = 80
+const BOSS_HALF_WIDTH = 50
+const BOSS_ARENA_MARGIN = 10
+const RAIN_PROJECTILE_COUNT = 14
+const RAIN_PROJECTILE_SPAWN_INTERVAL_MS = 300
+const RAIN_PROJECTILE_SPAWN_Y = -20
+const MINION_SAFE_DISTANCE_FROM_PLAYER = 100
+const MINION_SPAWN_PICK_ATTEMPTS = 5
+const GROUND_LEVEL_THRESHOLD_Y = 500
+const GROUND_LEVEL_FIRE_Y = 500
+const TIER1_LEVEL_FIRE_Y = 380
 
 interface GameSceneData {
   stageIndex?: number
@@ -40,6 +53,7 @@ export default class GameScene extends Phaser.Scene {
   private platforms!: Phaser.Physics.Arcade.StaticGroup
   private enemyGroup!: Phaser.GameObjects.Group
   private enemyProjectileGroup!: Phaser.GameObjects.Group
+  private rainProjectileGroup!: Phaser.GameObjects.Group
   private capturingEnemy: Enemy | null = null
   private isPlayerInvincible = false
   private isGameOver = false
@@ -89,7 +103,7 @@ export default class GameScene extends Phaser.Scene {
       platform.refreshBody()
     })
 
-    this.player = new Player(this, 400, 536)
+    this.player = new Player(this, stage.playerSpawnX ?? 400, 536)
 
     this.pickups = this.physics.add.group()
     this.walls = this.physics.add.staticGroup()
@@ -98,6 +112,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.enemyGroup = this.add.group()
     this.enemyProjectileGroup = this.add.group()
+    this.rainProjectileGroup = this.add.group()
 
     if (this.isBossLevel) {
       this.startBossEncounter()
@@ -142,6 +157,14 @@ export default class GameScene extends Phaser.Scene {
       this,
     )
 
+    this.physics.add.overlap(
+      this.player,
+      this.rainProjectileGroup,
+      this.handlePlayerRainProjectileContact,
+      undefined,
+      this,
+    )
+
     this.cursors = this.input.keyboard!.createCursorKeys()
     this.restartKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
   }
@@ -178,6 +201,13 @@ export default class GameScene extends Phaser.Scene {
     for (const enemyProjectile of enemyProjectiles) {
       if (enemyProjectile.x < -50 || enemyProjectile.x > 850) {
         enemyProjectile.destroy()
+      }
+    }
+
+    const rainProjectiles = this.rainProjectileGroup.getChildren() as RainProjectile[]
+    for (const rainProjectile of rainProjectiles) {
+      if (rainProjectile.y > 620) {
+        rainProjectile.destroy()
       }
     }
 
@@ -271,7 +301,7 @@ export default class GameScene extends Phaser.Scene {
   private spawnProjectile() {
     const direction = this.player.getFacingDirection()
     const projectileX = this.player.x + direction * 32
-    const projectileY = this.player.y - 16
+    const projectileY = this.player.y - PLAYER_HEIGHT / 2
 
     if (this.projectile && this.projectile.active) {
       this.projectile.destroy()
@@ -429,31 +459,104 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private startBossEncounter() {
-    const arenaMinX = WALL_THICKNESS + PATROL_EDGE_INSET
-    const arenaMaxX = 800 - WALL_THICKNESS - PATROL_EDGE_INSET
+    // Confined to the right side of the arena — the left side hosts the
+    // player's climbable staircase (up to x=310), which stays clear of the
+    // boss's patrol so a low TIER1 step there never clips through it.
+    const arenaMinX = 400
+    const arenaMaxX = 800 - WALL_THICKNESS - BOSS_HALF_WIDTH - BOSS_ARENA_MARGIN
 
     this.boss = new BossEnemy(
       this,
-      400,
-      280,
+      650,
+      420,
       { minX: arenaMinX, maxX: arenaMaxX },
       () => ({ x: this.player.x, y: this.player.y }),
-      (x, y) => this.spawnBossMinion(x, y),
-      (x, y, direction) => this.fireEnemyProjectile(x, y, direction),
+      () => this.spawnBossMinion(),
+      (x, y, direction) => this.fireBossProjectile(x, y, direction),
+      () => this.startRainAttack(),
       () => this.handleBossDefeated(),
     )
 
+    this.physics.add.collider(this.boss, this.platforms)
     this.physics.add.overlap(this.player, this.boss, this.handlePlayerBossContact, undefined, this)
   }
 
-  private spawnBossMinion(x: number, y: number) {
+  private pickXAwayFromPlayer(minX: number, maxX: number): number {
+    for (let attempt = 0; attempt < MINION_SPAWN_PICK_ATTEMPTS; attempt++) {
+      const x = Phaser.Math.Between(minX, maxX)
+      if (Math.abs(x - this.player.x) >= MINION_SAFE_DISTANCE_FROM_PLAYER) {
+        return x
+      }
+    }
+
+    const farFromPlayer = this.player.x < (minX + maxX) / 2 ? maxX : minX
+    return farFromPlayer
+  }
+
+  private spawnBossMinion() {
+    const elevatedPlatforms = this.stagePlatforms.filter((p) => (p.height ?? PLATFORM_HEIGHT) !== GROUND_HEIGHT)
+    const targetGround = elevatedPlatforms.length === 0 || Math.random() < 0.5
+
+    let x: number
+    let y: number
+
+    if (targetGround) {
+      const minX = WALL_THICKNESS + PATROL_EDGE_INSET
+      const maxX = 800 - WALL_THICKNESS - PATROL_EDGE_INSET
+      x = this.pickXAwayFromPlayer(minX, maxX)
+      y = GROUND_ENEMY_SPAWN_Y
+    } else {
+      const platform = Phaser.Utils.Array.GetRandom(elevatedPlatforms)
+      const minX = platform.x - platform.width / 2 + PATROL_EDGE_INSET
+      const maxX = platform.x + platform.width / 2 - PATROL_EDGE_INSET
+      x = this.pickXAwayFromPlayer(minX, maxX)
+      y = platform.y - ELEVATED_ENEMY_SPAWN_OFFSET
+    }
+
     const bounds = this.getPatrolBounds(x, y)
     const minion = new NormalEnemy(this, x, y, bounds.minX, bounds.maxX)
     minion.isBossMinion = true
     this.enemyGroup.add(minion)
   }
 
+  private fireBossProjectile(x: number, _y: number, direction: -1 | 1) {
+    const fireY = this.player.y >= GROUND_LEVEL_THRESHOLD_Y ? GROUND_LEVEL_FIRE_Y : TIER1_LEVEL_FIRE_Y
+    const projectile = new EnemyProjectile(this, x, fireY, direction, TextureKeys.BossProjectile)
+    this.enemyProjectileGroup.add(projectile)
+  }
+
+  private startRainAttack() {
+    const minX = WALL_THICKNESS + PATROL_EDGE_INSET
+    const maxX = 800 - WALL_THICKNESS - PATROL_EDGE_INSET
+    const segmentWidth = (maxX - minX) / RAIN_PROJECTILE_COUNT
+
+    // Divide the width into one segment per drop (guaranteeing full spread)
+    // but shuffle the spawn order so it doesn't look like a mechanical sweep.
+    const segmentIndices = Phaser.Utils.Array.Shuffle(
+      Array.from({ length: RAIN_PROJECTILE_COUNT }, (_, i) => i),
+    )
+
+    segmentIndices.forEach((segmentIndex, order) => {
+      const segmentStart = minX + segmentIndex * segmentWidth
+      const x = Phaser.Math.Between(segmentStart, segmentStart + segmentWidth)
+
+      this.time.delayedCall(order * RAIN_PROJECTILE_SPAWN_INTERVAL_MS, () => {
+        if (this.isGameOver) {
+          return
+        }
+        const rainProjectile = new RainProjectile(this, x, RAIN_PROJECTILE_SPAWN_Y)
+        this.rainProjectileGroup.add(rainProjectile)
+      })
+    })
+  }
+
   private handlePlayerBossContact() {
+    this.takeDamage()
+  }
+
+  private handlePlayerRainProjectileContact(...args: unknown[]) {
+    const rainProjectile = args[1] as RainProjectile
+    rainProjectile?.destroy()
     this.takeDamage()
   }
 

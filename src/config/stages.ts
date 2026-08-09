@@ -14,6 +14,7 @@ export interface StageConfig {
   platforms: PlatformConfig[]
   enemies: EnemySpawnConfig[]
   isBossLevel?: boolean
+  playerSpawnX?: number
 }
 
 const GROUND: PlatformConfig = { x: 400, y: 580, width: 800, height: GROUND_HEIGHT }
@@ -111,7 +112,7 @@ export const stages: StageConfig[] = [
       { type: 'fast', x: 620, y: TIER1 - 80 },
       { type: 'fast', x: 140, y: TIER3 - 80 },
       { type: 'ghost', x: 450, y: 400 },
-      { type: 'flyer', x: 400, y: 200 },
+      { type: 'flyer', x: 400, y: 200  },
     ],
   },
   {
@@ -183,15 +184,22 @@ export const stages: StageConfig[] = [
     ],
   },
   {
-    // Level 10: boss arena. Symmetric side platforms to dodge/reposition on;
-    // no roster of patrol enemies — the boss spawns its own minions.
+    // Level 10: boss arena. Player spawns left, boss spawns and patrols on
+    // the right. The right platform sits two tiers higher (TIER3) since the
+    // boss's 200px height would otherwise clip through anything at TIER1 as
+    // it patrols underneath. The boss never reaches the left side, so a
+    // normal TIER1→TIER2→TIER3 staircase there is safe and gives the player
+    // a climbable path up to the same height as the boss's platform.
     level: 10,
     platforms: [
       GROUND,
-      { x: 130, y: TIER1, width: 200 },
-      { x: 670, y: TIER1, width: 200 },
+      { x: 585, y: TIER3, width: 370 },
+      { x: 130, y: TIER1, width: 180 },
+      { x: 230, y: TIER2, width: 160 },
+      { x: 150, y: TIER3, width: 200 },
     ],
     enemies: [],
     isBossLevel: true,
+    playerSpawnX: 130,
   },
 ]

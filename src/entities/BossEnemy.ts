@@ -1,18 +1,31 @@
 import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
+import { WORLD_GRAVITY_Y } from '../config/physics'
 
-const MAX_HP = 5
-const DRIFT_SPEED = 40
+const MAX_HP = 10
+const BOSS_WIDTH = 100
+const BOSS_HEIGHT = 200
+const PATROL_SPEED = 50
 const DASH_SPEED_MULTIPLIER = 3
 const DASH_MIN_INTERVAL_MS = 6000
 const DASH_MAX_INTERVAL_MS = 10000
 const DASH_DURATION_MS = 1600
-const MINION_SPAWN_INTERVAL_MS = 5000
-const PROJECTILE_ATTACK_INTERVAL_MS = 3500
+const MINION_SPAWN_INTERVAL_MS = 3000
+const PROJECTILE_ATTACK_INTERVAL_MS = 2500
+const RAIN_ATTACK_MIN_INTERVAL_MS = 8000
+const RAIN_ATTACK_MAX_INTERVAL_MS = 12000
 const TELEGRAPH_DURATION_MS = 400
-const HIT_FLASH_DURATION_MS = 150
+const RAIN_TELEGRAPH_DURATION_MS = 700
+const HIT_FLASH_DURATION_MS = 200
 const DASH_TINT = 0xff8844
-const HIT_TINT = 0xffffff
+const HIT_TINT = 0xff2222
+const ATTACK_TELEGRAPH_TINT = 0xffff00
+const RAIN_TELEGRAPH_TINT = 0xff3333
+const HP_BAR_WIDTH = 90
+const HP_BAR_HEIGHT = 10
+const HP_BAR_OFFSET_Y = 24
+const HP_BAR_BACKGROUND_COLOR = 0x330000
+const HP_BAR_FILL_COLOR = 0xff3333
 
 export interface BossArenaBounds {
   minX: number
@@ -20,8 +33,9 @@ export interface BossArenaBounds {
 }
 
 export type GetPlayerPosition = () => { x: number; y: number }
-export type SpawnMinion = (x: number, y: number) => void
+export type SpawnMinion = () => void
 export type FireBossProjectile = (x: number, y: number, direction: -1 | 1) => void
+export type StartRainAttack = () => void
 export type OnBossDefeated = () => void
 
 export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
@@ -30,18 +44,24 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
 
   private minX: number
   private maxX: number
-  private driftDirection: -1 | 1 = 1
+  private patrolDirection: -1 | 1 = 1
   private isDashing = false
   private dashTimer = 0
   private nextDashInMs: number
   private minionSpawnTimer = 0
   private projectileAttackTimer = 0
+  private rainAttackTimer = 0
+  private nextRainAttackInMs: number
   private isDefeated = false
 
   private getPlayerPosition: GetPlayerPosition
   private spawnMinion: SpawnMinion
   private fireProjectile: FireBossProjectile
+  private startRainAttack: StartRainAttack
   private onDefeated: OnBossDefeated
+
+  private hpBarBackground: Phaser.GameObjects.Rectangle
+  private hpBarFill: Phaser.GameObjects.Rectangle
 
   constructor(
     scene: Phaser.Scene,
@@ -51,6 +71,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     getPlayerPosition: GetPlayerPosition,
     spawnMinion: SpawnMinion,
     fireProjectile: FireBossProjectile,
+    startRainAttack: StartRainAttack,
     onDefeated: OnBossDefeated,
   ) {
     super(scene, x, y, TextureKeys.Boss)
@@ -63,23 +84,42 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     this.getPlayerPosition = getPlayerPosition
     this.spawnMinion = spawnMinion
     this.fireProjectile = fireProjectile
+    this.startRainAttack = startRainAttack
     this.onDefeated = onDefeated
 
-    this.setGravityY(0)
-    this.setImmovable(true)
-    this.setVelocityX(this.driftDirection * DRIFT_SPEED)
+    this.setDisplaySize(BOSS_WIDTH, BOSS_HEIGHT)
+    this.setGravityY(WORLD_GRAVITY_Y)
+    this.setCollideWorldBounds(true)
+    this.setVelocityX(this.patrolDirection * PATROL_SPEED)
 
     this.nextDashInMs = Phaser.Math.Between(DASH_MIN_INTERVAL_MS, DASH_MAX_INTERVAL_MS)
+    this.nextRainAttackInMs = Phaser.Math.Between(RAIN_ATTACK_MIN_INTERVAL_MS, RAIN_ATTACK_MAX_INTERVAL_MS)
+
+    const barY = y - BOSS_HEIGHT / 2 - HP_BAR_OFFSET_Y
+    this.hpBarBackground = scene.add.rectangle(x, barY, HP_BAR_WIDTH, HP_BAR_HEIGHT, HP_BAR_BACKGROUND_COLOR, 0.8)
+    this.hpBarFill = scene.add
+      .rectangle(x - HP_BAR_WIDTH / 2, barY, HP_BAR_WIDTH, HP_BAR_HEIGHT, HP_BAR_FILL_COLOR, 1)
+      .setOrigin(0, 0.5)
   }
 
   updateBehavior(_time: number, delta: number): void {
+    this.updateHealthBar()
+
     if (this.isDefeated) {
       return
     }
 
-    this.updateMovement(delta)
+    this.updatePatrol(delta)
     this.updateMinionSpawner(delta)
     this.updateProjectileAttack(delta)
+    this.updateRainAttack(delta)
+  }
+
+  private updateHealthBar(): void {
+    const barY = this.y - this.displayHeight / 2 - HP_BAR_OFFSET_Y
+    this.hpBarBackground.setPosition(this.x, barY)
+    this.hpBarFill.setPosition(this.x - HP_BAR_WIDTH / 2, barY)
+    this.hpBarFill.displayWidth = HP_BAR_WIDTH * Math.max(0, this.hp / MAX_HP)
   }
 
   takeDamage(): void {
@@ -103,8 +143,12 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
   private defeat(): void {
     this.isDefeated = true
 
+    this.hpBarBackground.destroy()
+    this.hpBarFill.destroy()
+
     const body = this.body as Phaser.Physics.Arcade.Body | null
     body?.setVelocity(0, 0)
+    body?.setAllowGravity(false)
 
     this.scene.tweens.add({
       targets: this,
@@ -118,7 +162,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     })
   }
 
-  private updateMovement(delta: number): void {
+  private updatePatrol(delta: number): void {
     const body = this.body as Phaser.Physics.Arcade.Body | null
     if (!body) {
       return
@@ -129,7 +173,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
       if (this.dashTimer <= 0) {
         this.isDashing = false
         this.clearTint()
-        body.velocity.x = this.driftDirection * DRIFT_SPEED
+        body.velocity.x = this.patrolDirection * PATROL_SPEED
       }
     } else {
       this.nextDashInMs -= delta
@@ -138,17 +182,19 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
         this.dashTimer = DASH_DURATION_MS
         this.nextDashInMs = Phaser.Math.Between(DASH_MIN_INTERVAL_MS, DASH_MAX_INTERVAL_MS)
         this.setTint(DASH_TINT)
-        body.velocity.x = this.driftDirection * DRIFT_SPEED * DASH_SPEED_MULTIPLIER
+        body.velocity.x = this.patrolDirection * PATROL_SPEED * DASH_SPEED_MULTIPLIER
       }
     }
 
     if (this.x <= this.minX && body.velocity.x < 0) {
-      this.driftDirection = 1
+      this.patrolDirection = 1
       body.velocity.x = Math.abs(body.velocity.x)
     } else if (this.x >= this.maxX && body.velocity.x > 0) {
-      this.driftDirection = -1
+      this.patrolDirection = -1
       body.velocity.x = -Math.abs(body.velocity.x)
     }
+
+    this.setFlipX(body.velocity.x < 0)
   }
 
   private updateMinionSpawner(delta: number): void {
@@ -159,8 +205,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     this.minionSpawnTimer = 0
 
     this.telegraph(() => {
-      const spawnX = Phaser.Math.Between(this.minX, this.maxX)
-      this.spawnMinion(spawnX, this.y)
+      this.spawnMinion()
     })
   }
 
@@ -178,9 +223,22 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     })
   }
 
-  private telegraph(onComplete: () => void): void {
-    this.setTint(0xffff00)
-    this.scene.time.delayedCall(TELEGRAPH_DURATION_MS, () => {
+  private updateRainAttack(delta: number): void {
+    this.rainAttackTimer += delta
+    if (this.rainAttackTimer < this.nextRainAttackInMs) {
+      return
+    }
+    this.rainAttackTimer = 0
+    this.nextRainAttackInMs = Phaser.Math.Between(RAIN_ATTACK_MIN_INTERVAL_MS, RAIN_ATTACK_MAX_INTERVAL_MS)
+
+    this.telegraph(() => {
+      this.startRainAttack()
+    }, RAIN_TELEGRAPH_TINT, RAIN_TELEGRAPH_DURATION_MS)
+  }
+
+  private telegraph(onComplete: () => void, tint: number = ATTACK_TELEGRAPH_TINT, duration: number = TELEGRAPH_DURATION_MS): void {
+    this.setTint(tint)
+    this.scene.time.delayedCall(duration, () => {
       if (this.isDefeated) {
         return
       }

@@ -17,6 +17,13 @@ const PLAYER_SPRITE_PATHS = {
   full: 'assets/player_full.png',
 }
 
+const PROJECTILE_SPRITE_PATH = 'assets/projectile.png'
+
+const BOSS_SPRITE_PATHS = {
+  boss: 'assets/boss.png',
+  projectile: 'assets/boss-projectile.png',
+}
+
 export default class PreloadScene extends Phaser.Scene {
   constructor() {
     super({ key: 'PreloadScene' })
@@ -31,45 +38,12 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image(TextureKeys.PlayerInhaling, PLAYER_SPRITE_PATHS.inhaling)
     this.load.image(TextureKeys.PlayerFull, PLAYER_SPRITE_PATHS.full)
 
-    const graphics = this.add.graphics({ x: 0, y: 0 })
+    this.load.image(TextureKeys.Projectile, PROJECTILE_SPRITE_PATH)
 
-    graphics.fillStyle(0xffff00, 1)
-    graphics.fillPoints(
-      [{
-        x: 12,
-        y: 0,
-      },{
-        x: 16,
-        y: 12,
-      },{
-        x: 32,
-        y: 16,
-      },{
-        x: 18,
-        y: 24,
-      },{
-        x: 20,
-        y: 38,
-      },{
-        x: 12,
-        y: 30,
-      },{
-        x: 4,
-        y: 38,
-      },{
-        x: 6,
-        y: 24,
-      },{
-        x: 0,
-        y: 16,
-      },{
-        x: 16,
-        y: 12,
-      }],
-      true,
-    )
-    graphics.generateTexture(TextureKeys.Projectile, 32, 38)
-    graphics.clear()
+    this.load.image(TextureKeys.Boss, BOSS_SPRITE_PATHS.boss)
+    this.load.image(TextureKeys.BossProjectile, BOSS_SPRITE_PATHS.projectile)
+
+    const graphics = this.add.graphics({ x: 0, y: 0 })
 
     graphics.fillStyle(0xff3333, 1)
     graphics.fillCircle(6, 6, 6)
@@ -86,13 +60,6 @@ export default class PreloadScene extends Phaser.Scene {
     graphics.fillStyle(0xffffff, 1)
     graphics.fillCircle(12, 8, 4)
     graphics.generateTexture(TextureKeys.Diamond, 24, 24)
-    graphics.clear()
-
-    graphics.fillStyle(0x5a1030, 1)
-    graphics.fillRect(0, 0, 96, 96)
-    graphics.fillStyle(0x8a1c4a, 1)
-    graphics.fillRect(8, 8, 80, 80)
-    graphics.generateTexture(TextureKeys.Boss, 96, 96)
     graphics.destroy()
   }
 

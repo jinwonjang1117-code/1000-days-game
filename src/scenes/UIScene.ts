@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import GameScene from './GameScene'
+import { stages } from '../config/stages'
 
 const HUD_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -45,6 +46,10 @@ export default class UIScene extends Phaser.Scene {
     this.updateHealthText(this.gameScene.playerHealth)
     this.updateStageText()
 
+    if (import.meta.env.DEV) {
+      this.createDevBossButton()
+    }
+
     this.gameScene.events.on('scoreChanged', this.updateScoreText, this)
     this.gameScene.events.on('healthChanged', this.updateHealthText, this)
     this.gameScene.events.on('stageCleared', this.handleStageCleared, this)
@@ -80,5 +85,25 @@ export default class UIScene extends Phaser.Scene {
     this.overlayBackground.setVisible(true)
     this.overlayTitleText.setText('게임 오버').setVisible(true)
     this.overlaySubtitleText.setText(`점수: ${finalScore}   —   스페이스를 눌러서 다시 시작`).setVisible(true)
+  }
+
+  private createDevBossButton() {
+    const bossStageIndex = stages.findIndex((stage) => stage.isBossLevel)
+    if (bossStageIndex === -1) {
+      return
+    }
+
+    this.add.text(784, 588, '[DEV] Skip to Boss', {
+      fontFamily: 'monospace',
+      fontSize: '14px',
+      color: '#ffcc00',
+      backgroundColor: '#000000',
+      padding: { x: 6, y: 4 },
+    })
+      .setOrigin(1, 1)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => {
+        this.gameScene.scene.restart({ stageIndex: bossStageIndex, score: 0, playerHealth: 3 })
+      })
   }
 }
