@@ -16,7 +16,7 @@ import { stages } from '../config/stages'
 
 const WALL_THICKNESS = 32
 const DAMAGE_INVINCIBILITY_MS = 1000
-const PATROL_EDGE_INSET = 30
+const PATROL_EDGE_INSET = 40
 const CAPTURE_CHASE_SPEED = 700
 const STAGE_TRANSITION_DELAY_MS = 1500
 

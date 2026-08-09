@@ -23,7 +23,7 @@ export default class NormalEnemy extends Enemy {
     this.maxX = maxX
     this.canBeInhaled = true
 
-    this.setDisplaySize(48, 48)
+    this.setDisplaySize(40, 54)
     this.setGravityY(WORLD_GRAVITY_Y)
     this.setCollideWorldBounds(true)
     this.setVelocityX(speed)

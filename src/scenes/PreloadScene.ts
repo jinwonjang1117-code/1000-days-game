@@ -11,6 +11,12 @@ const ENEMY_SPRITE_PATHS = {
   ghost: 'assets/enemy-ghost.png',
 }
 
+const PLAYER_SPRITE_PATHS = {
+  normal: 'assets/player_normal.png',
+  inhaling: 'assets/player_inhaling.png',
+  full: 'assets/player_full.png',
+}
+
 export default class PreloadScene extends Phaser.Scene {
   constructor() {
     super({ key: 'PreloadScene' })
@@ -21,12 +27,11 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image(TextureKeys.Flyer, ENEMY_SPRITE_PATHS.flying)
     this.load.image(TextureKeys.Ghost, ENEMY_SPRITE_PATHS.ghost)
 
-    const graphics = this.add.graphics({ x: 0, y: 0 })
+    this.load.image(TextureKeys.Player, PLAYER_SPRITE_PATHS.normal)
+    this.load.image(TextureKeys.PlayerInhaling, PLAYER_SPRITE_PATHS.inhaling)
+    this.load.image(TextureKeys.PlayerFull, PLAYER_SPRITE_PATHS.full)
 
-    graphics.fillStyle(0x0000ff, 1)
-    graphics.fillRect(0, 0, 32, 48)
-    graphics.generateTexture(TextureKeys.Player, 32, 48)
-    graphics.clear()
+    const graphics = this.add.graphics({ x: 0, y: 0 })
 
     graphics.fillStyle(0xffff00, 1)
     graphics.fillPoints(

@@ -18,29 +18,32 @@ export interface StageConfig {
 
 const GROUND: PlatformConfig = { x: 400, y: 580, width: 800, height: GROUND_HEIGHT }
 
-// Fixed height tiers, spaced 1.5x further apart than the original layout.
-// Current jump (velocity 640, gravity 1400) reaches a max rise of ~146px;
-// every platform sits on one of these rows so any tier-to-tier jump
-// (including ground, which is thicker) clears with a ~40px buffer.
-const TIER1 = 466
-const TIER2 = 361
-const TIER3 = 256
-const TIER4 = 151
+// Fixed height tiers. Consecutive tiers are 128px apart (top-to-top), which
+// leaves 128 - 16 (platform thickness) = 112px of clear headroom between a
+// platform's surface and the underside of the one above it. Current jump
+// (velocity 640, gravity 1400) reaches a max rise of ~146px, so a 128px rise
+// still clears with an ~18px buffer. This is close to the practical ceiling:
+// with 4 tiers stacked on a 600px-tall canvas, going much higher would push
+// TIER4 up into the HUD text (~y=12-32) or off-screen.
+const TIER1 = 440
+const TIER2 = 312
+const TIER3 = 184
+const TIER4 = 56
 
 export const stages: StageConfig[] = [
   {
     // Level 1: flat ground only, one enemy, no platforming required.
     level: 1,
     platforms: [GROUND],
-    enemies: [{ type: 'normal', x: 600, y: 500 }],
+    enemies: [{ type: 'normal', x: 600, y: 490 }],
   },
   {
     // Level 2: one low platform introduces jumping (no enemy on it yet).
     level: 2,
     platforms: [GROUND, { x: 400, y: TIER1, width: 280 }],
     enemies: [
-      { type: 'normal', x: 250, y: 500 },
-      { type: 'fast', x: 600, y: 500 },
+      { type: 'normal', x: 250, y: 490 },
+      { type: 'fast', x: 600, y: 490 },
     ],
   },
   {
@@ -52,9 +55,9 @@ export const stages: StageConfig[] = [
       { x: 620, y: TIER1, width: 220 },
     ],
     enemies: [
-      { type: 'normal', x: 150, y: TIER1 - 60 },
-      { type: 'fast', x: 620, y: TIER1 - 60 },
-      { type: 'ghost', x: 400, y: 450 },
+      { type: 'normal', x: 150, y: TIER1 - 80 },
+      { type: 'fast', x: 620, y: TIER1 - 80 },
+      { type: 'ghost', x: 300, y: 450 },
     ],
   },
   {
@@ -67,9 +70,9 @@ export const stages: StageConfig[] = [
       { x: 400, y: TIER2, width: 260 },
     ],
     enemies: [
-      { type: 'normal', x: 150, y: TIER1 - 60 },
-      { type: 'fast', x: 620, y: TIER1 - 60 },
-      { type: 'ghost', x: 400, y: 400 },
+      { type: 'normal', x: 150, y: TIER1 - 80 },
+      { type: 'fast', x: 620, y: TIER1 - 80 },
+      { type: 'ghost', x: 300, y: 400 },
       { type: 'flyer', x: 400, y: 220 },
     ],
   },
@@ -84,10 +87,10 @@ export const stages: StageConfig[] = [
       { x: 400, y: TIER3, width: 220 },
     ],
     enemies: [
-      { type: 'normal', x: 150, y: TIER1 - 60 },
-      { type: 'fast', x: 620, y: TIER1 - 60 },
-      { type: 'normal', x: 400, y: TIER3 - 60 },
-      { type: 'ghost', x: 400, y: 400 },
+      { type: 'normal', x: 150, y: TIER1 - 80 },
+      { type: 'fast', x: 620, y: TIER1 - 80 },
+      { type: 'normal', x: 400, y: TIER3 - 80 },
+      { type: 'ghost', x: 300, y: 400 },
       { type: 'flyer', x: 400, y: 220 },
     ],
   },
@@ -103,12 +106,12 @@ export const stages: StageConfig[] = [
       { x: 650, y: TIER3, width: 200 },
     ],
     enemies: [
-      { type: 'normal', x: 150, y: TIER1 - 60 },
-      { type: 'normal', x: 650, y: TIER3 - 60 },
-      { type: 'fast', x: 620, y: TIER1 - 60 },
-      { type: 'fast', x: 140, y: TIER3 - 60 },
-      { type: 'ghost', x: 400, y: 400 },
-      { type: 'flyer', x: 400, y: 220 },
+      { type: 'normal', x: 150, y: TIER1 - 80 },
+      { type: 'normal', x: 650, y: TIER3 - 80 },
+      { type: 'fast', x: 620, y: TIER1 - 80 },
+      { type: 'fast', x: 140, y: TIER3 - 80 },
+      { type: 'ghost', x: 450, y: 400 },
+      { type: 'flyer', x: 400, y: 200 },
     ],
   },
   {
@@ -124,11 +127,11 @@ export const stages: StageConfig[] = [
       { x: 400, y: TIER4, width: 200 },
     ],
     enemies: [
-      { type: 'normal', x: 200, y: TIER1 - 60 },
-      { type: 'fast', x: 600, y: TIER1 - 60 },
-      { type: 'normal', x: 150, y: TIER3 - 60 },
-      { type: 'fast', x: 650, y: TIER3 - 60 },
-      { type: 'ghost', x: 400, y: 400 },
+      { type: 'normal', x: 200, y: TIER1 - 80 },
+      { type: 'fast', x: 600, y: TIER1 - 80 },
+      { type: 'normal', x: 150, y: TIER3 - 80 },
+      { type: 'fast', x: 650, y: TIER3 - 80 },
+      { type: 'ghost', x: 300, y: 400 },
       { type: 'flyer', x: 400, y: 230 },
     ],
   },
@@ -146,9 +149,9 @@ export const stages: StageConfig[] = [
       { x: 420, y: TIER4, width: 200 },
     ],
     enemies: [
-      { type: 'normal', x: 160, y: TIER1 - 60 },
-      { type: 'fast', x: 660, y: TIER1 - 60 },
-      { type: 'normal', x: 420, y: TIER1 - 60 },
+      { type: 'normal', x: 160, y: TIER1 - 80 },
+      { type: 'fast', x: 660, y: TIER1 - 80 },
+      { type: 'normal', x: 420, y: TIER1 - 80 },
       { type: 'ghost', x: 280, y: 400 },
       { type: 'ghost', x: 560, y: 400 },
       { type: 'flyer', x: 420, y: 230 },
@@ -169,10 +172,10 @@ export const stages: StageConfig[] = [
       { x: 420, y: TIER4, width: 220 },
     ],
     enemies: [
-      { type: 'normal', x: 140, y: TIER1 - 60 },
-      { type: 'fast', x: 680, y: TIER1 - 60 },
-      { type: 'normal', x: 420, y: TIER1 - 60 },
-      { type: 'fast', x: 260, y: TIER2 - 60 },
+      { type: 'normal', x: 140, y: TIER1 - 80 },
+      { type: 'fast', x: 680, y: TIER1 - 80 },
+      { type: 'normal', x: 420, y: TIER1 - 80 },
+      { type: 'fast', x: 260, y: TIER2 - 80 },
       { type: 'ghost', x: 560, y: 400 },
       { type: 'ghost', x: 420, y: 260 },
       { type: 'flyer', x: 140, y: 330 },

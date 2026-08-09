@@ -11,8 +11,9 @@ export const PlayerState = {
 
 export type PlayerStateType = 'idle' | 'moving' | 'inhaling' | 'full'
 
-const PLAYER_HEIGHT = 48
-const PLAYER_SPEED = 240
+const PLAYER_WIDTH = 60
+const PLAYER_HEIGHT = 104
+ const PLAYER_SPEED = 240
 const FULL_SPEED_MULTIPLIER = 0.5
 const JUMP_VELOCITY = 640
 const INHALE_ZONE_WIDTH = 120
@@ -46,7 +47,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.setGravityY(WORLD_GRAVITY_Y)
     this.setBounce(0)
     this.setOrigin(0.5, 1)
-    this.setScale(1)
+    this.setDisplaySize(PLAYER_WIDTH, PLAYER_HEIGHT)
   }
 
   update(cursors: Phaser.Types.Input.Keyboard.CursorKeys) {
@@ -93,16 +94,13 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       this.spitRequested = true
     }
 
-    const targetScale = this.state === PlayerState.FULL ? 1.3 : 1
-    if (this.scaleX !== targetScale) {
-      this.setScale(targetScale)
+    const targetTextureKey = this.getTextureKeyForState()
+    if (this.texture.key !== targetTextureKey) {
+      this.setTexture(targetTextureKey)
+      this.setDisplaySize(PLAYER_WIDTH, PLAYER_HEIGHT)
     }
 
-    if (this.state === PlayerState.FULL) {
-      this.setTint(0x88ff88)
-    } else {
-      this.clearTint()
-    }
+    this.setFlipX(this.lastDirection === -1)
 
     this.updateInhaleZonePosition()
   }
@@ -120,7 +118,6 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   releaseFull() {
     this.heldEnemy = false
     this.state = PlayerState.IDLE
-    this.clearTint()
   }
 
   getFacingDirection(): -1 | 1 {
@@ -165,5 +162,15 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     return this.state === PlayerState.FULL
       ? PLAYER_SPEED * FULL_SPEED_MULTIPLIER
       : PLAYER_SPEED
+  }
+
+  private getTextureKeyForState(): string {
+    if (this.state === PlayerState.FULL) {
+      return TextureKeys.PlayerFull
+    }
+    if (this.state === PlayerState.INHALING) {
+      return TextureKeys.PlayerInhaling
+    }
+    return TextureKeys.Player
   }
 }

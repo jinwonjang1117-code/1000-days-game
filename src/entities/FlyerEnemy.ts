@@ -37,7 +37,7 @@ export default class FlyerEnemy extends Enemy {
     this.canBeInhaled = true
     this.collidesWithPlatforms = false
 
-    this.setDisplaySize(48, 48)
+    this.setDisplaySize(54, 48)
     this.setGravityY(0)
     this.setVelocity(FLY_SPEED, FLY_SPEED * 0.6)
   }

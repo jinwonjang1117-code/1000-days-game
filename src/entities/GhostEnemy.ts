@@ -16,7 +16,7 @@ export default class GhostEnemy extends Enemy {
     this.canBeInhaled = false
     this.collidesWithPlatforms = false
 
-    this.setDisplaySize(48, 48)
+    this.setDisplaySize(48, 54)
     this.setGravityY(0)
     this.setImmovable(true)
   }
