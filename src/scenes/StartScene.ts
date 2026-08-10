@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
 import { AudioKeys } from '../config/audioKeys'
-import { playBgm } from '../config/audio'
+import { playBgm, isBgmOn, setBgmEnabled, isSfxOn, setSfxEnabled } from '../config/audio'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -35,6 +35,14 @@ const START_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   padding: { x: 28, y: 12 },
 }
 
+const TOGGLE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '14px',
+  color: '#ffffff',
+  backgroundColor: '#00000080',
+  padding: { x: 8, y: 4 },
+}
+
 const CONTROLS = ['← →  :  이동', '↑  :  점프', 'Space (길게)  :  흡입', 'Space (짧게)  :  흡입한 미니언 발사']
 
 const LEFT_COLUMN_X = 220
@@ -45,6 +53,9 @@ const CHARACTER_DISPLAY_WIDTH = 70
 const CHARACTER_DISPLAY_HEIGHT = 130
 
 export default class StartScene extends Phaser.Scene {
+  private musicToggleButton!: Phaser.GameObjects.Text
+  private sfxToggleButton!: Phaser.GameObjects.Text
+
   constructor() {
     super({ key: 'StartScene' })
   }
@@ -52,6 +63,24 @@ export default class StartScene extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor('#1a1a2e')
     playBgm(this, AudioKeys.StartBgm, 0.8)
+
+    this.musicToggleButton = this.add.text(784, 12, '', TOGGLE_BUTTON_STYLE)
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => {
+        setBgmEnabled(!isBgmOn())
+        this.updateMusicToggleButton()
+      })
+    this.updateMusicToggleButton()
+
+    this.sfxToggleButton = this.add.text(784, 40, '', TOGGLE_BUTTON_STYLE)
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => {
+        setSfxEnabled(!isSfxOn())
+        this.updateSfxToggleButton()
+      })
+    this.updateSfxToggleButton()
 
     this.add.text(400, 50, '1000일의 모험', TITLE_STYLE).setOrigin(0.5)
     this.add
@@ -112,6 +141,14 @@ export default class StartScene extends Phaser.Scene {
 
     this.input.keyboard!.once('keydown-ENTER', () => this.startGame())
     this.input.keyboard!.once('keydown-SPACE', () => this.startGame())
+  }
+
+  private updateMusicToggleButton() {
+    this.musicToggleButton.setText(`🎵 음악: ${isBgmOn() ? 'ON' : 'OFF'}`)
+  }
+
+  private updateSfxToggleButton() {
+    this.sfxToggleButton.setText(`🔊 효과음: ${isSfxOn() ? 'ON' : 'OFF'}`)
   }
 
   private selectCharacter(border: Phaser.GameObjects.Rectangle) {
