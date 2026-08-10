@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import GameScene from './GameScene'
 import { stages } from '../config/stages'
 import { TextureKeys } from '../config/textureKeys'
-import { STAGE_INTRO_DURATION_MS } from '../config/timing'
+import { getStageIntroDurationMs } from '../config/timing'
 
 const HUD_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -129,7 +129,7 @@ export default class UIScene extends Phaser.Scene {
     const welcomeMessage = `Welcome to ${this.gameScene.stageName}`
     const { letters: welcomeLetters } = this.fadeInTextLeftToRight(welcomeMessage, 400, 330, HUD_TEXT_STYLE)
 
-    this.time.delayedCall(STAGE_INTRO_DURATION_MS, () => {
+    this.time.delayedCall(getStageIntroDurationMs(this.gameScene.stageName), () => {
       this.overlayBackground.setVisible(false)
       this.overlayTitleText.setVisible(false)
       welcomeLetters.forEach((letter) => letter.destroy())
@@ -178,7 +178,7 @@ export default class UIScene extends Phaser.Scene {
   private handleGameOver(finalScore: number) {
     this.overlayBackground.setAlpha(OVERLAY_ALPHA_DEFAULT).setVisible(true)
     this.overlayTitleText.setText('게임 오버').setVisible(true)
-    this.overlaySubtitleText.setText(`사귄 일수: ${finalScore}일   —   스페이스를 눌러서 다시 시작`).setVisible(true)
+    this.overlaySubtitleText.setText(`사귄 일수: ${finalScore}일   —   스페이스를 눌러서 홈으로 돌아가기`).setVisible(true)
   }
 
   private handleGameWon(_finalScore: number) {
@@ -196,9 +196,14 @@ export default class UIScene extends Phaser.Scene {
       ...wonTextTiming,
       startDelay: title.completeAtMs + WON_TEXT_ROW_GAP_MS,
     })
-    this.fadeInTextLeftToRight('편지는 2층 큰 방 서랍 안에 있습니다 :)', 400, 380, HUD_TEXT_STYLE, {
+    const line2 = this.fadeInTextLeftToRight('편지는 2층 큰 방 서랍 안에 있습니다 :)', 400, 380, HUD_TEXT_STYLE, {
       ...wonTextTiming,
       startDelay: line1.completeAtMs + WON_TEXT_ROW_GAP_MS,
+    })
+    this.fadeInTextLeftToRight('스페이스를 눌러서 홈으로 돌아가기', 400, 480, HUD_TEXT_STYLE, {
+      perLetterDelay: 0,
+      fadeDuration: 0,
+      startDelay: line2.completeAtMs + WON_TEXT_ROW_GAP_MS,
     })
   }
 

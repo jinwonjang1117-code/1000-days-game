@@ -1,6 +1,8 @@
 import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
 import { WORLD_GRAVITY_Y } from '../config/physics'
+import { AudioKeys } from '../config/audioKeys'
+import { playSfx } from '../config/audio'
 
 export const PlayerState = {
   IDLE: 'idle',
@@ -88,6 +90,9 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     if (inhaleDown) {
+      if (this.state !== PlayerState.INHALING) {
+        playSfx(this.scene, AudioKeys.PlayerInhale)
+      }
       this.state = PlayerState.INHALING
       this.activateInhaleZone()
     } else {
@@ -99,6 +104,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
 
     if (Phaser.Input.Keyboard.JustDown(this.spaceKey) && this.state === PlayerState.FULL) {
       this.spitRequested = true
+      playSfx(this.scene, AudioKeys.PlayerSpit)
     }
 
     const targetTextureKey = this.getTextureKeyForState()

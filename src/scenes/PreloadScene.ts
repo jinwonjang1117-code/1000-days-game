@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { TextureKeys, stageBackgroundKey } from '../config/textureKeys'
+import { AudioKeys } from '../config/audioKeys'
 import { stages } from '../config/stages'
 
 // Real sprites go in public/assets/ under these exact filenames — drop them in
@@ -66,6 +67,24 @@ export default class PreloadScene extends Phaser.Scene {
     stages.forEach((stage) => {
       this.load.image(stageBackgroundKey(stage.level), `assets/stage${stage.level}.jpeg`)
     })
+
+    // BGM stays MP3 (loop timing doesn't need sample-accurate start). SFX are
+    // WAV — MP3's encoder/decoder priming silence adds an audible delay to
+    // short one-shot sounds that WAV's uncompressed PCM doesn't have.
+    this.load.audio(AudioKeys.StartBgm, 'assets/bgm-start.mp3')
+    this.load.audio(AudioKeys.GameplayBgm, 'assets/bgm-gameplay.mp3')
+    this.load.audio(AudioKeys.BossBgm, 'assets/bgm-boss.mp3')
+    this.load.audio(AudioKeys.FlyerProjectile, 'assets/sfx-flyer-projectile.wav')
+    this.load.audio(AudioKeys.BossProjectile, 'assets/sfx-boss-projectile.wav')
+    this.load.audio(AudioKeys.BossRain, 'assets/sfx-boss-rain.wav')
+    this.load.audio(AudioKeys.PickupConsume, 'assets/sfx-pickup.wav')
+    this.load.audio(AudioKeys.PlayerInhale, 'assets/sfx-player-inhale.wav')
+    this.load.audio(AudioKeys.PlayerSpit, 'assets/sfx-player-spit.wav')
+    this.load.audio(AudioKeys.PlayerHit, 'assets/sfx-player-hit.wav')
+    this.load.audio(AudioKeys.EnemyHit, 'assets/sfx-enemy-hit.wav')
+    this.load.audio(AudioKeys.StageClear, 'assets/sfx-stage-clear.wav')
+    this.load.audio(AudioKeys.Victory, 'assets/sfx-victory.wav')
+    this.load.audio(AudioKeys.Lose, 'assets/sfx-lose.wav')
 
     const graphics = this.add.graphics({ x: 0, y: 0 })
 

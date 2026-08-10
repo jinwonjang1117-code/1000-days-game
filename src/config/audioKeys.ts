@@ -1,0 +1,16 @@
+export const AudioKeys = {
+  StartBgm: 'bgm-start',
+  GameplayBgm: 'bgm-gameplay',
+  BossBgm: 'bgm-boss',
+  FlyerProjectile: 'sfx-flyer-projectile',
+  BossProjectile: 'sfx-boss-projectile',
+  BossRain: 'sfx-boss-rain',
+  PickupConsume: 'sfx-pickup',
+  PlayerInhale: 'sfx-player-inhale',
+  PlayerSpit: 'sfx-player-spit',
+  PlayerHit: 'sfx-player-hit',
+  EnemyHit: 'sfx-enemy-hit',
+  StageClear: 'sfx-stage-clear',
+  Victory: 'sfx-victory',
+  Lose: 'sfx-lose',
+}

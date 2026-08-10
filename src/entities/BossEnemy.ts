@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
 import { WORLD_GRAVITY_Y } from '../config/physics'
 
-const MAX_HP = 10
+const MAX_HP = 1
 const BOSS_WIDTH = 100
 const BOSS_HEIGHT = 200
 const PATROL_SPEED = 50

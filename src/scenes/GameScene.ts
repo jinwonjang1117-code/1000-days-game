@@ -14,7 +14,9 @@ import type { PlatformConfig } from '../config/platformLayout'
 import { PLATFORM_HEIGHT, GROUND_HEIGHT, findLandingPlatform } from '../config/platformLayout'
 import type { EnemySpawnConfig } from '../config/stages'
 import { stages } from '../config/stages'
-import { STAGE_INTRO_DURATION_MS } from '../config/timing'
+import { getStageIntroDurationMs } from '../config/timing'
+import { AudioKeys } from '../config/audioKeys'
+import { playBgm, playSfx, stopBgm } from '../config/audio'
 
 const DAMAGE_INVINCIBILITY_MS = 1000
 const PATROL_EDGE_INSET = 40
@@ -106,6 +108,8 @@ export default class GameScene extends Phaser.Scene {
     this.stagePlatforms = stage.platforms
     this.isBossLevel = stage.isBossLevel ?? false
 
+    playBgm(this, this.isBossLevel ? AudioKeys.BossBgm : AudioKeys.GameplayBgm)
+
     this.scene.launch('UIScene')
 
     this.cameras.main.setBackgroundColor('#1a1a2e')
@@ -187,7 +191,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.isStageIntroActive = true
     this.physics.world.pause()
-    this.time.delayedCall(STAGE_INTRO_DURATION_MS, () => {
+    this.time.delayedCall(getStageIntroDurationMs(stage.name), () => {
       this.isStageIntroActive = false
       this.physics.world.resume()
     })
@@ -200,7 +204,8 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.isGameOver || this.isGameWon) {
       if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
-        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0, pickupCount: 0 })
+        this.scene.stop('UIScene')
+        this.scene.start('StartScene')
       }
       return
     }
@@ -325,6 +330,7 @@ export default class GameScene extends Phaser.Scene {
     const direction: -1 | 1 = targetX < x ? -1 : 1
     const projectile = new EnemyProjectile(this, x, y, direction, TextureKeys.EnemyProjectile, { x: targetX, y: targetY })
     this.enemyProjectileGroup.add(projectile)
+    playSfx(this, AudioKeys.FlyerProjectile)
   }
 
   private spawnProjectile() {
@@ -357,6 +363,7 @@ export default class GameScene extends Phaser.Scene {
 
     projectile?.destroy()
     enemy?.destroy()
+    playSfx(this, AudioKeys.EnemyHit)
     this.spawnPickup(enemy.x, enemy.y - 24)
     this.checkStageClear()
   }
@@ -384,6 +391,7 @@ export default class GameScene extends Phaser.Scene {
     const pickupSprite = pickup as Phaser.Physics.Arcade.Image
     const isWinPickup = pickupSprite.getData('isWinPickup') === true
     pickupSprite.destroy()
+    playSfx(this, AudioKeys.PickupConsume)
 
     if (isWinPickup) {
       this.handleGameWon()
@@ -400,6 +408,8 @@ export default class GameScene extends Phaser.Scene {
   private handleGameWon() {
     this.isGameWon = true
     this.physics.world.pause()
+    stopBgm()
+    playSfx(this, AudioKeys.Victory)
     this.events.emit('gameWon', this.score)
   }
 
@@ -424,6 +434,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.playerHealth = Math.max(0, this.playerHealth - 1)
     this.events.emit('healthChanged', this.playerHealth)
+    playSfx(this, AudioKeys.PlayerHit)
 
     if (this.playerHealth === 0) {
       this.handleGameOver()
@@ -451,6 +462,8 @@ export default class GameScene extends Phaser.Scene {
   private handleGameOver() {
     this.isGameOver = true
     this.physics.world.pause()
+    stopBgm()
+    playSfx(this, AudioKeys.Lose)
     this.events.emit('gameOver', this.score)
   }
 
@@ -469,6 +482,7 @@ export default class GameScene extends Phaser.Scene {
     const isFinalStage = nextStageIndex >= stages.length
 
     this.events.emit('stageCleared', { isFinalStage })
+    playSfx(this, AudioKeys.StageClear, 0.5)
 
     if (isFinalStage) {
       this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
@@ -579,9 +593,12 @@ export default class GameScene extends Phaser.Scene {
     const fireY = this.player.y >= GROUND_LEVEL_THRESHOLD_Y ? GROUND_LEVEL_FIRE_Y : TIER1_LEVEL_FIRE_Y
     const projectile = new EnemyProjectile(this, x, fireY, direction, TextureKeys.BossProjectile)
     this.enemyProjectileGroup.add(projectile)
+    playSfx(this, AudioKeys.BossProjectile)
   }
 
   private startRainAttack() {
+    playSfx(this, AudioKeys.BossRain)
+
     const minX = PATROL_EDGE_INSET
     const maxX = 800 - PATROL_EDGE_INSET
     const segmentWidth = (maxX - minX) / RAIN_PROJECTILE_COUNT

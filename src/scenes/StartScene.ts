@@ -1,5 +1,7 @@
 import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
+import { AudioKeys } from '../config/audioKeys'
+import { playBgm } from '../config/audio'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -49,6 +51,7 @@ export default class StartScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor('#1a1a2e')
+    playBgm(this, AudioKeys.StartBgm, 0.8)
 
     this.add.text(400, 50, '1000일의 모험', TITLE_STYLE).setOrigin(0.5)
     this.add
@@ -122,6 +125,6 @@ export default class StartScene extends Phaser.Scene {
   }
 
   private startGame() {
-    this.scene.start('GameScene')
+    this.scene.start('GameScene', { stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0, pickupCount: 0 })
   }
 }
