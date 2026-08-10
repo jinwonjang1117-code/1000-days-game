@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import GameScene from './GameScene'
 import { stages } from '../config/stages'
 import { TextureKeys } from '../config/textureKeys'
+import { STAGE_INTRO_DURATION_MS } from '../config/timing'
 
 const HUD_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -20,6 +21,9 @@ const OVERLAY_TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontSize: '40px',
   color: '#ffffff',
 }
+
+const OVERLAY_ALPHA_DEFAULT = 0.6
+const OVERLAY_ALPHA_WELCOME = 1
 
 interface StageClearedPayload {
   isFinalStage: boolean
@@ -56,7 +60,7 @@ export default class UIScene extends Phaser.Scene {
     this.stageText = this.add.text(400, 12, '', HUD_TEXT_STYLE).setOrigin(0.5, 0)
     this.stageNameText = this.add.text(400, 38, '', HUD_TEXT_STYLE).setOrigin(0.5, 0)
 
-    this.overlayBackground = this.add.rectangle(400, 300, 800, 600, 0x000000, 0.6).setVisible(false)
+    this.overlayBackground = this.add.rectangle(400, 300, 800, 600, 0x000000, OVERLAY_ALPHA_DEFAULT).setVisible(false)
     this.overlayTitleText = this.add.text(400, 270, '', OVERLAY_TITLE_STYLE).setOrigin(0.5).setVisible(false)
     this.overlaySubtitleText = this.add.text(400, 330, '', HUD_TEXT_STYLE).setOrigin(0.5).setVisible(false)
 
@@ -64,6 +68,7 @@ export default class UIScene extends Phaser.Scene {
     this.updatePickupText(this.gameScene.pickupCount)
     this.updateHealthText(this.gameScene.playerHealth)
     this.updateStageText()
+    this.showStageIntro()
 
     if (import.meta.env.DEV) {
       this.createDevBossButton()
@@ -111,14 +116,26 @@ export default class UIScene extends Phaser.Scene {
     this.stageNameText.setText(this.gameScene.stageName)
   }
 
+  private showStageIntro() {
+    this.overlayBackground.setAlpha(OVERLAY_ALPHA_WELCOME).setVisible(true)
+    this.overlayTitleText.setText(`Stage ${this.gameScene.stageNumber}`).setVisible(true)
+    this.overlaySubtitleText.setText(`Welcome to "${this.gameScene.stageName}"`).setVisible(true)
+
+    this.time.delayedCall(STAGE_INTRO_DURATION_MS, () => {
+      this.overlayBackground.setVisible(false)
+      this.overlayTitleText.setVisible(false)
+      this.overlaySubtitleText.setVisible(false)
+    })
+  }
+
   private handleStageCleared(payload: StageClearedPayload) {
-    this.overlayBackground.setVisible(true)
+    this.overlayBackground.setAlpha(OVERLAY_ALPHA_DEFAULT).setVisible(true)
     this.overlayTitleText.setText(payload.isFinalStage ? '게임 클리어!' : '스테이지 완료!').setVisible(true)
     this.overlaySubtitleText.setText(`사귄 일수: ${this.gameScene.score}일`).setVisible(true)
   }
 
   private handleGameOver(finalScore: number) {
-    this.overlayBackground.setVisible(true)
+    this.overlayBackground.setAlpha(OVERLAY_ALPHA_DEFAULT).setVisible(true)
     this.overlayTitleText.setText('게임 오버').setVisible(true)
     this.overlaySubtitleText.setText(`사귄 일수: ${finalScore}일   —   스페이스를 눌러서 다시 시작`).setVisible(true)
   }

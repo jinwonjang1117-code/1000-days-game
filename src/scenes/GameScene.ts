@@ -14,6 +14,7 @@ import type { PlatformConfig } from '../config/platformLayout'
 import { PLATFORM_HEIGHT, GROUND_HEIGHT, findLandingPlatform } from '../config/platformLayout'
 import type { EnemySpawnConfig } from '../config/stages'
 import { stages } from '../config/stages'
+import { STAGE_INTRO_DURATION_MS } from '../config/timing'
 
 const DAMAGE_INVINCIBILITY_MS = 1000
 const PATROL_EDGE_INSET = 40
@@ -65,6 +66,7 @@ export default class GameScene extends Phaser.Scene {
   private isBossLevel = false
   private boss?: BossEnemy
   private heldEnemyIsBossMinion = false
+  private isStageIntroActive = false
 
   constructor() {
     super({ key: 'GameScene' })
@@ -178,6 +180,13 @@ export default class GameScene extends Phaser.Scene {
 
     this.cursors = this.input.keyboard!.createCursorKeys()
     this.restartKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+
+    this.isStageIntroActive = true
+    this.physics.world.pause()
+    this.time.delayedCall(STAGE_INTRO_DURATION_MS, () => {
+      this.isStageIntroActive = false
+      this.physics.world.resume()
+    })
   }
 
   update(time: number, delta: number) {
@@ -189,6 +198,10 @@ export default class GameScene extends Phaser.Scene {
       if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
         this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0, pickupCount: 0 })
       }
+      return
+    }
+
+    if (this.isStageIntroActive) {
       return
     }
 

@@ -1,0 +1,1 @@
+export const STAGE_INTRO_DURATION_MS = 1200
