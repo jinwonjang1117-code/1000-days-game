@@ -29,6 +29,22 @@ const WON_TEXT_PER_LETTER_DELAY_MS = 80
 const WON_TEXT_FADE_DURATION_MS = 60
 const WON_TEXT_ROW_GAP_MS = 500
 
+const BOUNCING_ENEMY_MIN_SPEED = 120
+const BOUNCING_ENEMY_MAX_SPEED = 200
+const BOUNCING_ENEMY_CONFIGS: { key: string; width: number; height: number }[] = [
+  { key: TextureKeys.Enemy, width: 40, height: 54 },
+  { key: TextureKeys.Ghost, width: 48, height: 54 },
+  { key: TextureKeys.Flyer, width: 70, height: 70 },
+]
+
+interface BouncingSprite {
+  image: Phaser.GameObjects.Image
+  vx: number
+  vy: number
+  halfWidth: number
+  halfHeight: number
+}
+
 interface StageClearedPayload {
   isFinalStage: boolean
 }
@@ -40,6 +56,7 @@ export default class UIScene extends Phaser.Scene {
   private healthIcons: Phaser.GameObjects.Image[] = []
   private stageText!: Phaser.GameObjects.Text
   private stageNameText!: Phaser.GameObjects.Text
+  private bouncingSprites: BouncingSprite[] = []
   private overlayBackground!: Phaser.GameObjects.Rectangle
   private overlayTitleText!: Phaser.GameObjects.Text
   private overlaySubtitleText!: Phaser.GameObjects.Text
@@ -93,6 +110,46 @@ export default class UIScene extends Phaser.Scene {
       this.gameScene.events.off('stageCleared', this.handleStageCleared, this)
       this.gameScene.events.off('gameOver', this.handleGameOver, this)
       this.gameScene.events.off('gameWon', this.handleGameWon, this)
+    })
+  }
+
+  update(_time: number, delta: number) {
+    if (this.bouncingSprites.length === 0) {
+      return
+    }
+
+    const dt = delta / 1000
+    for (const sprite of this.bouncingSprites) {
+      sprite.image.x += sprite.vx * dt
+      sprite.image.y += sprite.vy * dt
+
+      if (sprite.image.x - sprite.halfWidth <= 0 || sprite.image.x + sprite.halfWidth >= 800) {
+        sprite.vx *= -1
+        sprite.image.x = Phaser.Math.Clamp(sprite.image.x, sprite.halfWidth, 800 - sprite.halfWidth)
+      }
+      if (sprite.image.y - sprite.halfHeight <= 0 || sprite.image.y + sprite.halfHeight >= 600) {
+        sprite.vy *= -1
+        sprite.image.y = Phaser.Math.Clamp(sprite.image.y, sprite.halfHeight, 600 - sprite.halfHeight)
+      }
+    }
+  }
+
+  private startBouncingEnemies() {
+    BOUNCING_ENEMY_CONFIGS.forEach((config, i) => {
+      const x = 250 + i * 150
+      const y = 520
+      const image = this.add.image(x, y, config.key).setDisplaySize(config.width, config.height)
+
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
+      const speed = Phaser.Math.Between(BOUNCING_ENEMY_MIN_SPEED, BOUNCING_ENEMY_MAX_SPEED)
+
+      this.bouncingSprites.push({
+        image,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        halfWidth: config.width / 2,
+        halfHeight: config.height / 2,
+      })
     })
   }
 
@@ -200,10 +257,14 @@ export default class UIScene extends Phaser.Scene {
       ...wonTextTiming,
       startDelay: line1.completeAtMs + WON_TEXT_ROW_GAP_MS,
     })
-    this.fadeInTextLeftToRight('스페이스를 눌러서 홈으로 돌아가기', 400, 480, HUD_TEXT_STYLE, {
+    const pressSpaceLine = this.fadeInTextLeftToRight('스페이스를 눌러서 홈으로 돌아가기', 400, 480, HUD_TEXT_STYLE, {
       perLetterDelay: 0,
       fadeDuration: 0,
       startDelay: line2.completeAtMs + WON_TEXT_ROW_GAP_MS,
+    })
+
+    this.time.delayedCall(pressSpaceLine.completeAtMs, () => {
+      this.startBouncingEnemies()
     })
   }
 

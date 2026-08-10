@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 
 const BGM_VOLUME = 0.5
 const SFX_VOLUME = 0.7
+export const START_BGM_VOLUME = 0.8
 
 let currentBgmKey: string | null = null
 let currentBgm: Phaser.Sound.BaseSound | null = null
@@ -36,9 +37,17 @@ export function stopBgm() {
   currentBgmKey = null
 }
 
-export function playSfx(scene: Phaser.Scene, key: string, volume: number = SFX_VOLUME) {
+export function playSfx(
+  scene: Phaser.Scene,
+  key: string,
+  volume: number = SFX_VOLUME,
+): Phaser.Sound.BaseSound | undefined {
   if (!scene.cache.audio.exists(key)) {
-    return
+    return undefined
   }
-  scene.sound.play(key, { volume })
+
+  const sound = scene.sound.add(key, { volume })
+  sound.play()
+  sound.once(Phaser.Sound.Events.COMPLETE, () => sound.destroy())
+  return sound
 }

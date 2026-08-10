@@ -16,7 +16,7 @@ import type { EnemySpawnConfig } from '../config/stages'
 import { stages } from '../config/stages'
 import { getStageIntroDurationMs } from '../config/timing'
 import { AudioKeys } from '../config/audioKeys'
-import { playBgm, playSfx, stopBgm } from '../config/audio'
+import { playBgm, playSfx, stopBgm, START_BGM_VOLUME } from '../config/audio'
 
 const DAMAGE_INVINCIBILITY_MS = 1000
 const PATROL_EDGE_INSET = 40
@@ -408,8 +408,16 @@ export default class GameScene extends Phaser.Scene {
   private handleGameWon() {
     this.isGameWon = true
     this.physics.world.pause()
-    stopBgm()
-    playSfx(this, AudioKeys.Victory)
+
+    const victorySound = playSfx(this, AudioKeys.Victory)
+    if (victorySound) {
+      victorySound.once(Phaser.Sound.Events.COMPLETE, () => {
+        playBgm(this, AudioKeys.StartBgm, START_BGM_VOLUME)
+      })
+    } else {
+      playBgm(this, AudioKeys.StartBgm, START_BGM_VOLUME)
+    }
+
     this.events.emit('gameWon', this.score)
   }
 
@@ -646,6 +654,7 @@ export default class GameScene extends Phaser.Scene {
 
   private handleBossDefeatStarted() {
     this.stageCleared = true
+    stopBgm()
 
     const remainingEnemies = this.enemyGroup.getChildren() as Enemy[]
     remainingEnemies.forEach((enemy) => enemy.destroy())
