@@ -46,6 +46,7 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image(TextureKeys.BossProjectile, BOSS_SPRITE_PATHS.projectile)
 
     this.load.image(TextureKeys.Gem, 'assets/gem.png')
+    this.load.image(TextureKeys.Life, 'assets/life.png')
 
     const graphics = this.add.graphics({ x: 0, y: 0 })
 

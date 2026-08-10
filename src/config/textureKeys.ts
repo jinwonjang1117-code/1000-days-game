@@ -12,4 +12,5 @@ export const TextureKeys = {
   Gem: 'gem',
   Diamond: 'diamond',
   Platform: 'platform',
+  Life: 'life',
 }

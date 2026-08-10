@@ -39,11 +39,13 @@ interface GameSceneData {
   score?: number
   playerHealth?: number
   speedBonus?: number
+  pickupCount?: number
 }
 
 export default class GameScene extends Phaser.Scene {
   public score = 0
   public playerHealth = 3
+  public pickupCount = 0
   private speedBonus = 0
   private stageIndex = 0
   private stagePlatforms: PlatformConfig[] = []
@@ -76,11 +78,16 @@ export default class GameScene extends Phaser.Scene {
     return stages.length
   }
 
+  public get stageName(): string {
+    return stages[this.stageIndex].name
+  }
+
   create(data: GameSceneData) {
     this.stageIndex = data?.stageIndex ?? 0
     this.score = data?.score ?? 0
     this.playerHealth = data?.playerHealth ?? 3
     this.speedBonus = data?.speedBonus ?? 0
+    this.pickupCount = data?.pickupCount ?? 0
     this.capturingEnemy = null
     this.isPlayerInvincible = false
     this.isGameOver = false
@@ -175,7 +182,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.isGameOver) {
       if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
-        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0 })
+        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0, pickupCount: 0 })
       }
       return
     }
@@ -329,8 +336,6 @@ export default class GameScene extends Phaser.Scene {
     projectile?.destroy()
     enemy?.destroy()
     this.spawnPickup(enemy.x, enemy.y - 24)
-    this.score += 100
-    this.events.emit('scoreChanged', this.score)
     this.checkStageClear()
   }
 
@@ -351,6 +356,9 @@ export default class GameScene extends Phaser.Scene {
 
     this.speedBonus += SPEED_BOOST_PER_PICKUP
     this.player.setSpeedBonus(this.speedBonus)
+
+    this.pickupCount += 1
+    this.events.emit('pickupCountChanged', this.pickupCount)
   }
 
   private handlePlayerEnemyContact(...args: unknown[]) {
@@ -410,6 +418,11 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.stageCleared = true
+
+    const clearedStage = stages[this.stageIndex]
+    this.score += clearedStage.points
+    this.events.emit('scoreChanged', this.score)
+
     const nextStageIndex = this.stageIndex + 1
     const isFinalStage = nextStageIndex >= stages.length
 
@@ -417,7 +430,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (isFinalStage) {
       this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
-        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0 })
+        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0, pickupCount: 0 })
       })
       return
     }
@@ -428,6 +441,7 @@ export default class GameScene extends Phaser.Scene {
         score: this.score,
         playerHealth: this.playerHealth,
         speedBonus: this.speedBonus,
+        pickupCount: this.pickupCount,
       })
     })
   }
@@ -573,10 +587,15 @@ export default class GameScene extends Phaser.Scene {
   private handleBossDefeated() {
     this.stageCleared = true
     this.boss = undefined
+
+    const clearedStage = stages[this.stageIndex]
+    this.score += clearedStage.points
+    this.events.emit('scoreChanged', this.score)
+
     this.events.emit('stageCleared', { isFinalStage: true })
 
     this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
-      this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3 })
+      this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0, pickupCount: 0 })
     })
   }
 }

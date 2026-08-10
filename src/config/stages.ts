@@ -11,6 +11,8 @@ export interface EnemySpawnConfig {
 
 export interface StageConfig {
   level: number
+  name: string
+  points: number
   platforms: PlatformConfig[]
   enemies: EnemySpawnConfig[]
   isBossLevel?: boolean
@@ -35,12 +37,16 @@ export const stages: StageConfig[] = [
   {
     // Level 1: flat ground only, one enemy, no platforming required.
     level: 1,
+    name: 'Open Field',
+    points: 100,
     platforms: [GROUND],
     enemies: [{ type: 'normal', x: 600, y: 490 }],
   },
   {
     // Level 2: one low platform introduces jumping (no enemy on it yet).
     level: 2,
+    name: 'First Steps',
+    points: 100,
     platforms: [GROUND, { x: 400, y: TIER1, width: 280 }],
     enemies: [
       { type: 'normal', x: 250, y: 490 },
@@ -50,6 +56,8 @@ export const stages: StageConfig[] = [
   {
     // Level 3: two low platforms with a gap, plus a ghost to dodge.
     level: 3,
+    name: 'Ghostly Gap',
+    points: 100,
     platforms: [
       GROUND,
       { x: 180, y: TIER1, width: 220 },
@@ -64,6 +72,8 @@ export const stages: StageConfig[] = [
   {
     // Level 4: adds a center platform and the flyer's ranged attacks.
     level: 4,
+    name: 'Ranged Trouble',
+    points: 100,
     platforms: [
       GROUND,
       { x: 180, y: TIER1, width: 220 },
@@ -80,6 +90,8 @@ export const stages: StageConfig[] = [
   {
     // Level 5: adds a narrow top-center platform, one tier higher.
     level: 5,
+    name: 'Higher Ground',
+    points: 100,
     platforms: [
       GROUND,
       { x: 180, y: TIER1, width: 220 },
@@ -98,6 +110,8 @@ export const stages: StageConfig[] = [
   {
     // Level 6: full symmetric six-platform climb.
     level: 6,
+    name: 'Symmetric Climb',
+    points: 100,
     platforms: [
       GROUND,
       { x: 180, y: TIER1, width: 220 },
@@ -118,6 +132,8 @@ export const stages: StageConfig[] = [
   {
     // Level 7: asymmetric layout, introduces the fourth (highest) tier.
     level: 7,
+    name: 'Uneven Ascent',
+    points: 100,
     platforms: [
       GROUND,
       { x: 200, y: TIER1, width: 200 },
@@ -125,7 +141,6 @@ export const stages: StageConfig[] = [
       { x: 400, y: TIER2, width: 240 },
       { x: 180, y: TIER3, width: 180 },
       { x: 620, y: TIER3, width: 180 },
-      { x: 400, y: TIER4, width: 200 },
     ],
     enemies: [
       { type: 'normal', x: 200, y: TIER1 - 80 },
@@ -139,38 +154,40 @@ export const stages: StageConfig[] = [
   {
     // Level 8: narrower platforms, three columns, tighter precision.
     level: 8,
+    name: 'Narrow Passage',
+    points: 100,
     platforms: [
       GROUND,
-      { x: 180, y: TIER1, width: 180 },
+      { x: 160, y: TIER1, width: 120 },
       { x: 400, y: TIER1, width: 180 },
-      { x: 620, y: TIER1, width: 180 },
-      { x: 280, y: TIER2, width: 200 },
-      { x: 520, y: TIER2, width: 200 },
+      { x: 640, y: TIER1, width: 120 },
+      { x: 280, y: TIER2, width: 160 },
+      { x: 520, y: TIER2, width: 160 },
       { x: 400, y: TIER3, width: 220 },
-      { x: 400, y: TIER4, width: 200 },
     ],
     enemies: [
       { type: 'normal', x: 180, y: TIER1 - 80 },
       { type: 'fast', x: 620, y: TIER1 - 80 },
       { type: 'normal', x: 400, y: TIER1 - 80 },
-      { type: 'ghost', x: 280, y: 400 },
-      { type: 'ghost', x: 560, y: 400 },
+      { type: 'ghost', x: 270, y: 400 },
+      { type: 'ghost', x: 530, y: 400 },
       { type: 'flyer', x: 420, y: 230 },
     ],
   },
   {
     // Level 9: dense nine-platform layout, two flyers.
     level: 9,
+    name: 'Crowded Heights',
+    points: 100,
     platforms: [
       GROUND,
-      { x: 180, y: TIER1, width: 170 },
+      { x: 160, y: TIER1, width: 170 },
       { x: 400, y: TIER1, width: 170 },
-      { x: 620, y: TIER1, width: 170 },
-      { x: 280, y: TIER2, width: 190 },
-      { x: 520, y: TIER2, width: 190 },
+      { x: 640, y: TIER1, width: 170 },
+      { x: 260, y: TIER2, width: 190 },
+      { x: 540, y: TIER2, width: 190 },
       { x: 180, y: TIER3, width: 170 },
       { x: 620, y: TIER3, width: 170 },
-      { x: 400, y: TIER4, width: 220 },
     ],
     enemies: [
       { type: 'normal', x: 180, y: TIER1 - 80 },
@@ -191,6 +208,8 @@ export const stages: StageConfig[] = [
     // normal TIER1→TIER2→TIER3 staircase there is safe and gives the player
     // a climbable path up to the same height as the boss's platform.
     level: 10,
+    name: 'Boss Arena',
+    points: 100,
     platforms: [
       GROUND,
       { x: 585, y: TIER3, width: 370 },
