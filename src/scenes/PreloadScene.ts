@@ -51,7 +51,7 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image(TextureKeys.Diamond, 'assets/diamond.png')
 
     stages.forEach((stage) => {
-      this.load.image(stageBackgroundKey(stage.level), `assets/stage${stage.level}.png`)
+      this.load.image(stageBackgroundKey(stage.level), `assets/stage${stage.level}.jpeg`)
     })
 
     const graphics = this.add.graphics({ x: 0, y: 0 })
