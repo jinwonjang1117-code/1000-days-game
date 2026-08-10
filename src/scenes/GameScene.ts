@@ -328,7 +328,7 @@ export default class GameScene extends Phaser.Scene {
 
     projectile?.destroy()
     enemy?.destroy()
-    this.spawnPickup(this.player.x, this.player.y - 24)
+    this.spawnPickup(enemy.x, enemy.y - 24)
     this.score += 100
     this.events.emit('scoreChanged', this.score)
     this.checkStageClear()
