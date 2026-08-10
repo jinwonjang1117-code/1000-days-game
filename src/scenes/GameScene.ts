@@ -32,8 +32,10 @@ const MINION_SPAWN_PICK_ATTEMPTS = 5
 const GROUND_LEVEL_THRESHOLD_Y = 500
 const GROUND_LEVEL_FIRE_Y = 500
 const TIER1_LEVEL_FIRE_Y = 380
-const SPEED_BOOST_PER_PICKUP = 10
+const SPEED_BOOST_PER_PICKUP = 20
 const PICKUP_SIZE = 50
+const DIAMOND_PICKUP_SIZE = 70
+const BOSS_DEFEAT_DIAMOND_DELAY_MS = 600
 
 interface GameSceneData {
   stageIndex?: number
@@ -62,6 +64,7 @@ export default class GameScene extends Phaser.Scene {
   private capturingEnemy: Enemy | null = null
   private isPlayerInvincible = false
   private isGameOver = false
+  private isGameWon = false
   private restartKey!: Phaser.Input.Keyboard.Key
   private isBossLevel = false
   private boss?: BossEnemy
@@ -86,13 +89,14 @@ export default class GameScene extends Phaser.Scene {
 
   create(data: GameSceneData) {
     this.stageIndex = data?.stageIndex ?? 0
-    this.score = data?.score ?? 0
+    this.score = data?.score ?? 100
     this.playerHealth = data?.playerHealth ?? 3
     this.speedBonus = data?.speedBonus ?? 0
     this.pickupCount = data?.pickupCount ?? 0
     this.capturingEnemy = null
     this.isPlayerInvincible = false
     this.isGameOver = false
+    this.isGameWon = false
     this.stageCleared = false
     this.projectile = undefined
     this.boss = undefined
@@ -194,7 +198,7 @@ export default class GameScene extends Phaser.Scene {
       return
     }
 
-    if (this.isGameOver) {
+    if (this.isGameOver || this.isGameWon) {
       if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
         this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0, pickupCount: 0 })
       }
@@ -357,12 +361,20 @@ export default class GameScene extends Phaser.Scene {
     this.checkStageClear()
   }
 
-  private spawnPickup(x: number, y: number) {
-    const pickup = this.pickups.create(x, y, TextureKeys.Gem) as Phaser.Physics.Arcade.Image
-    pickup.setDisplaySize(PICKUP_SIZE, PICKUP_SIZE)
+  private spawnPickup(
+    x: number,
+    y: number,
+    textureKey: string = TextureKeys.Gem,
+    isWinPickup = false,
+    size: number = PICKUP_SIZE,
+  ) {
+    const pickup = this.pickups.create(x, y, textureKey) as Phaser.Physics.Arcade.Image
+    pickup.setDisplaySize(size, size)
     pickup.setBounce(0.6)
     pickup.setCollideWorldBounds(true)
     pickup.setVelocity(Phaser.Math.Between(-100, 100), -250)
+    pickup.setData('isWinPickup', isWinPickup)
+    return pickup
   }
 
   private handlePickupCollision(
@@ -370,13 +382,25 @@ export default class GameScene extends Phaser.Scene {
     pickup: Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody | Phaser.Tilemaps.Tile,
   ) {
     const pickupSprite = pickup as Phaser.Physics.Arcade.Image
+    const isWinPickup = pickupSprite.getData('isWinPickup') === true
     pickupSprite.destroy()
+
+    if (isWinPickup) {
+      this.handleGameWon()
+      return
+    }
 
     this.speedBonus += SPEED_BOOST_PER_PICKUP
     this.player.setSpeedBonus(this.speedBonus)
 
     this.pickupCount += 1
     this.events.emit('pickupCountChanged', this.pickupCount)
+  }
+
+  private handleGameWon() {
+    this.isGameWon = true
+    this.physics.world.pause()
+    this.events.emit('gameWon', this.score)
   }
 
   private handlePlayerEnemyContact(...args: unknown[]) {
@@ -505,6 +529,7 @@ export default class GameScene extends Phaser.Scene {
       () => this.spawnBossMinion(),
       (x, y, direction) => this.fireBossProjectile(x, y, direction),
       () => this.startRainAttack(),
+      () => this.handleBossDefeatStarted(),
       () => this.handleBossDefeated(),
     )
 
@@ -572,7 +597,7 @@ export default class GameScene extends Phaser.Scene {
       const x = Phaser.Math.Between(segmentStart, segmentStart + segmentWidth)
 
       this.time.delayedCall(order * RAIN_PROJECTILE_SPAWN_INTERVAL_MS, () => {
-        if (this.isGameOver) {
+        if (this.isGameOver || this.stageCleared) {
           return
         }
         const rainProjectile = new RainProjectile(this, x, RAIN_PROJECTILE_SPAWN_Y)
@@ -602,18 +627,31 @@ export default class GameScene extends Phaser.Scene {
     this.boss?.takeDamage()
   }
 
-  private handleBossDefeated() {
+  private handleBossDefeatStarted() {
     this.stageCleared = true
+
+    const remainingEnemies = this.enemyGroup.getChildren() as Enemy[]
+    remainingEnemies.forEach((enemy) => enemy.destroy())
+    this.capturingEnemy = null
+
+    const remainingEnemyProjectiles = this.enemyProjectileGroup.getChildren() as EnemyProjectile[]
+    remainingEnemyProjectiles.forEach((projectile) => projectile.destroy())
+
+    const remainingRainProjectiles = this.rainProjectileGroup.getChildren() as RainProjectile[]
+    remainingRainProjectiles.forEach((projectile) => projectile.destroy())
+  }
+
+  private handleBossDefeated() {
+    const diamondX = this.boss?.x ?? 650
+    const diamondY = this.boss?.y ?? 420
     this.boss = undefined
 
     const clearedStage = stages[this.stageIndex]
     this.score += clearedStage.points
     this.events.emit('scoreChanged', this.score)
 
-    this.events.emit('stageCleared', { isFinalStage: true })
-
-    this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
-      this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0, pickupCount: 0 })
+    this.time.delayedCall(BOSS_DEFEAT_DIAMOND_DELAY_MS, () => {
+      this.spawnPickup(diamondX, diamondY, TextureKeys.Diamond, true, DIAMOND_PICKUP_SIZE)
     })
   }
 }

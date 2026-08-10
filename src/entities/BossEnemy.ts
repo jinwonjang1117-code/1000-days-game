@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
 import { WORLD_GRAVITY_Y } from '../config/physics'
 
-const MAX_HP = 10
+const MAX_HP = 1
 const BOSS_WIDTH = 100
 const BOSS_HEIGHT = 200
 const PATROL_SPEED = 50
@@ -37,6 +37,7 @@ export type SpawnMinion = () => void
 export type FireBossProjectile = (x: number, y: number, direction: -1 | 1) => void
 export type StartRainAttack = () => void
 export type OnBossDefeated = () => void
+export type OnBossDefeatStarted = () => void
 
 export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
   canBeInhaled = false
@@ -58,6 +59,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
   private spawnMinion: SpawnMinion
   private fireProjectile: FireBossProjectile
   private startRainAttack: StartRainAttack
+  private onDefeatStarted: OnBossDefeatStarted
   private onDefeated: OnBossDefeated
 
   private hpBarBackground: Phaser.GameObjects.Rectangle
@@ -72,6 +74,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     spawnMinion: SpawnMinion,
     fireProjectile: FireBossProjectile,
     startRainAttack: StartRainAttack,
+    onDefeatStarted: OnBossDefeatStarted,
     onDefeated: OnBossDefeated,
   ) {
     super(scene, x, y, TextureKeys.Boss)
@@ -85,6 +88,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     this.spawnMinion = spawnMinion
     this.fireProjectile = fireProjectile
     this.startRainAttack = startRainAttack
+    this.onDefeatStarted = onDefeatStarted
     this.onDefeated = onDefeated
 
     this.setDisplaySize(BOSS_WIDTH, BOSS_HEIGHT)
@@ -142,6 +146,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
 
   private defeat(): void {
     this.isDefeated = true
+    this.onDefeatStarted()
 
     this.hpBarBackground.destroy()
     this.hpBarFill.destroy()

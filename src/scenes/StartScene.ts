@@ -96,9 +96,9 @@ export default class StartScene extends Phaser.Scene {
       .setOrigin(0.5, 0)
 
     this.add.text(LEFT_COLUMN_X, 330, '아이템', SECTION_HEADER_STYLE).setOrigin(0.5, 0)
-    this.add.image(LEFT_COLUMN_X, 380, TextureKeys.Gem).setDisplaySize(28, 28)
+    this.add.image(LEFT_COLUMN_X, 390, TextureKeys.Gem).setDisplaySize(44, 44)
     this.add
-      .text(LEFT_COLUMN_X, 410, '획득 시 이동 속도가 빨라져요!', BODY_TEXT_STYLE)
+      .text(LEFT_COLUMN_X, 425, '초코우유 획득 시 이동 속도가 빨라집니다', BODY_TEXT_STYLE)
       .setOrigin(0.5, 0)
 
     this.add

@@ -42,7 +42,7 @@ export const stages: StageConfig[] = [
   {
     // Level 2: one low platform introduces jumping (no enemy on it yet).
     level: 2,
-    name: 'First Steps',
+    name: 'Las Vegas',
     points: 100,
     platforms: [GROUND, { x: 400, y: TIER1, width: 280 }],
     enemies: [
@@ -53,7 +53,7 @@ export const stages: StageConfig[] = [
   {
     // Level 3: two low platforms with a gap, plus a ghost to dodge.
     level: 3,
-    name: 'Ghostly Gap',
+    name: 'New York',
     points: 100,
     platforms: [
       GROUND,
@@ -69,7 +69,7 @@ export const stages: StageConfig[] = [
   {
     // Level 4: adds a center platform and the flyer's ranged attacks.
     level: 4,
-    name: 'Ranged Trouble',
+    name: 'Seattle',
     points: 100,
     platforms: [
       GROUND,
@@ -87,7 +87,7 @@ export const stages: StageConfig[] = [
   {
     // Level 5: adds a narrow top-center platform, one tier higher.
     level: 5,
-    name: 'Higher Ground',
+    name: '1328 S Brook Dr (Summer)',
     points: 100,
     platforms: [
       GROUND,
@@ -107,7 +107,7 @@ export const stages: StageConfig[] = [
   {
     // Level 6: full symmetric six-platform climb.
     level: 6,
-    name: 'Symmetric Climb',
+    name: 'San Francisco',
     points: 100,
     platforms: [
       GROUND,
@@ -122,14 +122,14 @@ export const stages: StageConfig[] = [
       { type: 'normal', x: 620, y: TIER3 - 80 },
       { type: 'fast', x: 620, y: TIER1 - 80 },
       { type: 'fast', x: 180, y: TIER3 - 80 },
-      { type: 'ghost', x: 450, y: 400 },
+      { type: 'ghost', x: 480, y: 400 },
       { type: 'flyer', x: 400, y: 200  },
     ],
   },
   {
     // Level 7: asymmetric layout, introduces the fourth (highest) tier.
     level: 7,
-    name: 'Uneven Ascent',
+    name: '1328 S Brook Dr (Winter)',
     points: 100,
     platforms: [
       GROUND,
@@ -151,7 +151,7 @@ export const stages: StageConfig[] = [
   {
     // Level 8: narrower platforms, three columns, tighter precision.
     level: 8,
-    name: 'Narrow Passage',
+    name: 'Lights Festival',
     points: 100,
     platforms: [
       GROUND,
@@ -174,7 +174,7 @@ export const stages: StageConfig[] = [
   {
     // Level 9: dense nine-platform layout, two flyers.
     level: 9,
-    name: 'Crowded Heights',
+    name: 'Sphere with Illenium',
     points: 100,
     platforms: [
       GROUND,
@@ -205,14 +205,14 @@ export const stages: StageConfig[] = [
     // normal TIER1→TIER2→TIER3 staircase there is safe and gives the player
     // a climbable path up to the same height as the boss's platform.
     level: 10,
-    name: 'Boss Arena',
+    name: 'The Yurtopian (Proposal Day)',
     points: 100,
     platforms: [
       GROUND,
       { x: 585, y: TIER3, width: 370 },
       { x: 160, y: TIER1, width: 180 },
       { x: 230, y: TIER2, width: 160 },
-      { x: 160, y: TIER3, width: 220 },
+      { x: 160, y: TIER3, width: 180 },
     ],
     enemies: [],
     isBossLevel: true,

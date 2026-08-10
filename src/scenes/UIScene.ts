@@ -25,6 +25,10 @@ const OVERLAY_TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 const OVERLAY_ALPHA_DEFAULT = 0.6
 const OVERLAY_ALPHA_WELCOME = 1
 
+const WON_TEXT_PER_LETTER_DELAY_MS = 80
+const WON_TEXT_FADE_DURATION_MS = 60
+const WON_TEXT_ROW_GAP_MS = 500
+
 interface StageClearedPayload {
   isFinalStage: boolean
 }
@@ -80,6 +84,7 @@ export default class UIScene extends Phaser.Scene {
     this.gameScene.events.on('healthChanged', this.updateHealthText, this)
     this.gameScene.events.on('stageCleared', this.handleStageCleared, this)
     this.gameScene.events.on('gameOver', this.handleGameOver, this)
+    this.gameScene.events.on('gameWon', this.handleGameWon, this)
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.gameScene.events.off('scoreChanged', this.updateScoreText, this)
@@ -87,6 +92,7 @@ export default class UIScene extends Phaser.Scene {
       this.gameScene.events.off('healthChanged', this.updateHealthText, this)
       this.gameScene.events.off('stageCleared', this.handleStageCleared, this)
       this.gameScene.events.off('gameOver', this.handleGameOver, this)
+      this.gameScene.events.off('gameWon', this.handleGameWon, this)
     })
   }
 
@@ -119,13 +125,48 @@ export default class UIScene extends Phaser.Scene {
   private showStageIntro() {
     this.overlayBackground.setAlpha(OVERLAY_ALPHA_WELCOME).setVisible(true)
     this.overlayTitleText.setText(`Stage ${this.gameScene.stageNumber}`).setVisible(true)
-    this.overlaySubtitleText.setText(`Welcome to "${this.gameScene.stageName}"`).setVisible(true)
+
+    const welcomeMessage = `Welcome to ${this.gameScene.stageName}`
+    const { letters: welcomeLetters } = this.fadeInTextLeftToRight(welcomeMessage, 400, 330, HUD_TEXT_STYLE)
 
     this.time.delayedCall(STAGE_INTRO_DURATION_MS, () => {
       this.overlayBackground.setVisible(false)
       this.overlayTitleText.setVisible(false)
-      this.overlaySubtitleText.setVisible(false)
+      welcomeLetters.forEach((letter) => letter.destroy())
     })
+  }
+
+  private fadeInTextLeftToRight(
+    message: string,
+    centerX: number,
+    y: number,
+    style: Phaser.Types.GameObjects.Text.TextStyle,
+    options: { startDelay?: number; perLetterDelay?: number; fadeDuration?: number } = {},
+  ): { letters: Phaser.GameObjects.Text[]; completeAtMs: number } {
+    const { startDelay = 0, perLetterDelay = 50, fadeDuration = 40 } = options
+
+    const letters = message
+      .split('')
+      .map((char) => this.add.text(0, y, char, style).setOrigin(0.5, 0.5).setAlpha(0))
+
+    const totalWidth = letters.reduce((sum, letter) => sum + letter.width, 0)
+    let cursorX = centerX - totalWidth / 2
+    letters.forEach((letter) => {
+      letter.setX(cursorX + letter.width / 2)
+      cursorX += letter.width
+    })
+
+    letters.forEach((letter, i) => {
+      this.tweens.add({
+        targets: letter,
+        alpha: 1,
+        duration: fadeDuration,
+        delay: startDelay + i * perLetterDelay,
+      })
+    })
+
+    const completeAtMs = startDelay + Math.max(0, letters.length - 1) * perLetterDelay + fadeDuration
+    return { letters, completeAtMs }
   }
 
   private handleStageCleared(payload: StageClearedPayload) {
@@ -138,6 +179,27 @@ export default class UIScene extends Phaser.Scene {
     this.overlayBackground.setAlpha(OVERLAY_ALPHA_DEFAULT).setVisible(true)
     this.overlayTitleText.setText('게임 오버').setVisible(true)
     this.overlaySubtitleText.setText(`사귄 일수: ${finalScore}일   —   스페이스를 눌러서 다시 시작`).setVisible(true)
+  }
+
+  private handleGameWon(_finalScore: number) {
+    this.overlayBackground.setAlpha(OVERLAY_ALPHA_DEFAULT).setVisible(true)
+    this.overlayTitleText.setVisible(false)
+    this.overlaySubtitleText.setVisible(false)
+
+    const wonTextTiming = {
+      perLetterDelay: WON_TEXT_PER_LETTER_DELAY_MS,
+      fadeDuration: WON_TEXT_FADE_DURATION_MS,
+    }
+
+    const title = this.fadeInTextLeftToRight('축하합니다! 1000일에 도달했습니다!', 400, 270, OVERLAY_TITLE_STYLE, wonTextTiming)
+    const line1 = this.fadeInTextLeftToRight('상품은 진원이의 편지입니다!', 400, 330, HUD_TEXT_STYLE, {
+      ...wonTextTiming,
+      startDelay: title.completeAtMs + WON_TEXT_ROW_GAP_MS,
+    })
+    this.fadeInTextLeftToRight('편지는 2층 큰 방 서랍 안에 있습니다 :)', 400, 380, HUD_TEXT_STYLE, {
+      ...wonTextTiming,
+      startDelay: line1.completeAtMs + WON_TEXT_ROW_GAP_MS,
+    })
   }
 
   private createDevBossButton() {
