@@ -25,19 +25,16 @@ const GROUND: PlatformConfig = { x: 400, y: 580, width: 800, height: GROUND_HEIG
 // leaves 128 - 16 (platform thickness) = 112px of clear headroom between a
 // platform's surface and the underside of the one above it. Current jump
 // (velocity 640, gravity 1400) reaches a max rise of ~146px, so a 128px rise
-// still clears with an ~18px buffer. This is close to the practical ceiling:
-// with 4 tiers stacked on a 600px-tall canvas, going much higher would push
-// TIER4 up into the HUD text (~y=12-32) or off-screen.
+// still clears with an ~18px buffer.
 const TIER1 = 440
 const TIER2 = 312
 const TIER3 = 184
-const TIER4 = 56
 
 export const stages: StageConfig[] = [
   {
     // Level 1: flat ground only, one enemy, no platforming required.
     level: 1,
-    name: 'Open Field',
+    name: 'Zilker Park',
     points: 100,
     platforms: [GROUND],
     enemies: [{ type: 'normal', x: 600, y: 490 }],
@@ -66,7 +63,7 @@ export const stages: StageConfig[] = [
     enemies: [
       { type: 'normal', x: 180, y: TIER1 - 80 },
       { type: 'fast', x: 620, y: TIER1 - 80 },
-      { type: 'ghost', x: 300, y: 450 },
+      { type: 'ghost', x: 320, y: 450 },
     ],
   },
   {

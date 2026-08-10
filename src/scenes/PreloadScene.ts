@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
-import { TextureKeys } from '../config/textureKeys'
+import { TextureKeys, stageBackgroundKey } from '../config/textureKeys'
+import { stages } from '../config/stages'
 
 // Real sprites go in public/assets/ under these exact filenames — drop them in
 // and reload, no code changes needed. Loaded as runtime string paths (not JS
@@ -47,6 +48,10 @@ export default class PreloadScene extends Phaser.Scene {
 
     this.load.image(TextureKeys.Gem, 'assets/gem.png')
     this.load.image(TextureKeys.Life, 'assets/life.png')
+
+    stages.forEach((stage) => {
+      this.load.image(stageBackgroundKey(stage.level), `assets/stage${stage.level}.png`)
+    })
 
     const graphics = this.add.graphics({ x: 0, y: 0 })
 

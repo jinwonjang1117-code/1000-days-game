@@ -14,3 +14,7 @@ export const TextureKeys = {
   Platform: 'platform',
   Life: 'life',
 }
+
+export function stageBackgroundKey(level: number): string {
+  return `stage-background-${level}`
+}

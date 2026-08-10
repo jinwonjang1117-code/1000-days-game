@@ -9,7 +9,7 @@ import FlyerEnemy from '../entities/FlyerEnemy'
 import EnemyProjectile from '../entities/EnemyProjectile'
 import BossEnemy from '../entities/BossEnemy'
 import RainProjectile from '../entities/RainProjectile'
-import { TextureKeys } from '../config/textureKeys'
+import { TextureKeys, stageBackgroundKey } from '../config/textureKeys'
 import type { PlatformConfig } from '../config/platformLayout'
 import { PLATFORM_HEIGHT, GROUND_HEIGHT, findLandingPlatform } from '../config/platformLayout'
 import type { EnemySpawnConfig } from '../config/stages'
@@ -103,6 +103,11 @@ export default class GameScene extends Phaser.Scene {
     this.scene.launch('UIScene')
 
     this.cameras.main.setBackgroundColor('#1a1a2e')
+
+    const backgroundKey = stageBackgroundKey(stage.level)
+    if (this.textures.exists(backgroundKey)) {
+      this.add.image(400, 300, backgroundKey).setDisplaySize(800, 600)
+    }
 
     this.physics.world.setBounds(0, 0, 800, 600)
 
