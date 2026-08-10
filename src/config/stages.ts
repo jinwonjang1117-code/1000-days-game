@@ -111,7 +111,7 @@ export const stages: StageConfig[] = [
       { type: 'normal', x: 620, y: TIER3 - 80 },
       { type: 'fast', x: 620, y: TIER1 - 80 },
       { type: 'fast', x: 180, y: TIER3 - 80 },
-      { type: 'ghost', x: 300, y: 400 },
+      { type: 'ghost', x: 450, y: 400 },
       { type: 'flyer', x: 400, y: 200  },
     ],
   },
