@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
 import { AudioKeys } from '../config/audioKeys'
 import { playBgm, isBgmOn, setBgmEnabled, isSfxOn, setSfxEnabled } from '../config/audio'
+import { getDifficulty, setDifficulty, getDifficultySettings } from '../config/difficulty'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -47,6 +48,22 @@ const TOGGLE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#ffffff',
   backgroundColor: '#00000080',
   padding: { x: 8, y: 4 },
+}
+
+const DIFFICULTY_BUTTON_SELECTED_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '16px',
+  color: '#000000',
+  backgroundColor: '#ffcc00',
+  padding: { x: 16, y: 8 },
+}
+
+const DIFFICULTY_BUTTON_UNSELECTED_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '16px',
+  color: '#ffffff',
+  backgroundColor: '#00000080',
+  padding: { x: 16, y: 8 },
 }
 
 const CONTROLS = ['← →  :  이동', '↑  :  점프', 'Space (길게)  :  흡입', 'Space (짧게)  :  흡입한 미니언 발사']
@@ -174,7 +191,7 @@ export default class StartScene extends Phaser.Scene {
 
     this.addStepObject(this.add.text(400, 100, '1000일의 모험', TITLE_STYLE).setOrigin(0.5))
     this.addStepObject(
-      this.add.text(400, 150, '미니언을 흡입해서 처치하고, 스테이지를 클리어하세요!', INSTRUCTIONS_STYLE).setOrigin(0.5),
+      this.add.text(400, 150, '미니언을 흡입해서 처치하고, 스테이지를 클리어해서 1000일에 도달하세요!', INSTRUCTIONS_STYLE).setOrigin(0.5),
     )
 
     this.addStepObject(this.add.text(LEFT_COLUMN_X, 200, '조작법', SECTION_HEADER_STYLE).setOrigin(0.5, 0))
@@ -191,8 +208,39 @@ export default class StartScene extends Phaser.Scene {
         .setAlign('center'),
     )
 
+    this.addStepObject(this.add.text(400, 380, '난이도', SECTION_HEADER_STYLE).setOrigin(0.5, 0))
+
+    const lowDifficultyButton = this.addStepObject(
+      this.add
+        .text(360, 435, '하', DIFFICULTY_BUTTON_UNSELECTED_STYLE)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          setDifficulty('low')
+          updateDifficultyButtonStyles()
+        }),
+    )
+
+    const highDifficultyButton = this.addStepObject(
+      this.add
+        .text(440, 435, '상', DIFFICULTY_BUTTON_UNSELECTED_STYLE)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          setDifficulty('high')
+          updateDifficultyButtonStyles()
+        }),
+    )
+
+    const updateDifficultyButtonStyles = () => {
+      const difficulty = getDifficulty()
+      lowDifficultyButton.setStyle(difficulty === 'low' ? DIFFICULTY_BUTTON_SELECTED_STYLE : DIFFICULTY_BUTTON_UNSELECTED_STYLE)
+      highDifficultyButton.setStyle(difficulty === 'high' ? DIFFICULTY_BUTTON_SELECTED_STYLE : DIFFICULTY_BUTTON_UNSELECTED_STYLE)
+    }
+    updateDifficultyButtonStyles()
+
     this.addStepObject(
-      this.add.text(400, 480, '다음 화면에서 캐릭터를 선택하세요', INSTRUCTIONS_STYLE).setOrigin(0.5),
+      this.add.text(400, 485, '다음 화면에서 캐릭터를 선택하세요', INSTRUCTIONS_STYLE).setOrigin(0.5),
     )
 
     this.addStepObject(
@@ -299,6 +347,12 @@ export default class StartScene extends Phaser.Scene {
   }
 
   private startGame() {
-    this.scene.start('GameScene', { stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0, pickupCount: 0 })
+    this.scene.start('GameScene', {
+      stageIndex: 0,
+      score: 0,
+      playerHealth: getDifficultySettings().playerLives,
+      speedBonus: 0,
+      pickupCount: 0,
+    })
   }
 }

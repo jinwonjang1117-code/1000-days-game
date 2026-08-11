@@ -17,6 +17,7 @@ import { stages } from '../config/stages'
 import { getStageIntroDurationMs } from '../config/timing'
 import { AudioKeys } from '../config/audioKeys'
 import { playBgm, playSfx, stopBgm, stopLoopingSfx, START_BGM_VOLUME } from '../config/audio'
+import { getDifficultySettings } from '../config/difficulty'
 
 const DAMAGE_INVINCIBILITY_MS = 1000
 const PATROL_EDGE_INSET = 40
@@ -510,7 +511,7 @@ export default class GameScene extends Phaser.Scene {
 
     if (isFinalStage) {
       this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
-        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: 3, speedBonus: 0, pickupCount: 0 })
+        this.scene.restart({ stageIndex: 0, score: 0, playerHealth: getDifficultySettings().playerLives, speedBonus: 0, pickupCount: 0 })
       })
       return
     }
@@ -564,6 +565,7 @@ export default class GameScene extends Phaser.Scene {
       650,
       420,
       { minX: arenaMinX, maxX: arenaMaxX },
+      getDifficultySettings().bossHp,
       () => ({ x: this.player.x, y: this.player.y }),
       () => this.spawnBossMinion(),
       (x, y, direction) => this.fireBossProjectile(x, y, direction),

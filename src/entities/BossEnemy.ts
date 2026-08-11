@@ -2,7 +2,6 @@ import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
 import { WORLD_GRAVITY_Y } from '../config/physics'
 
-const MAX_HP = 1
 const BOSS_WIDTH = 100
 const BOSS_HEIGHT = 200
 const PATROL_SPEED = 50
@@ -41,8 +40,9 @@ export type OnBossDefeatStarted = () => void
 
 export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
   canBeInhaled = false
-  hp = MAX_HP
+  hp: number
 
+  private maxHp: number
   private minX: number
   private maxX: number
   private patrolDirection: -1 | 1 = 1
@@ -70,6 +70,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     x: number,
     y: number,
     bounds: BossArenaBounds,
+    maxHp: number,
     getPlayerPosition: GetPlayerPosition,
     spawnMinion: SpawnMinion,
     fireProjectile: FireBossProjectile,
@@ -82,6 +83,8 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     scene.add.existing(this)
     scene.physics.add.existing(this)
 
+    this.maxHp = maxHp
+    this.hp = maxHp
     this.minX = bounds.minX
     this.maxX = bounds.maxX
     this.getPlayerPosition = getPlayerPosition
@@ -123,7 +126,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     const barY = this.y - this.displayHeight / 2 - HP_BAR_OFFSET_Y
     this.hpBarBackground.setPosition(this.x, barY)
     this.hpBarFill.setPosition(this.x - HP_BAR_WIDTH / 2, barY)
-    this.hpBarFill.displayWidth = HP_BAR_WIDTH * Math.max(0, this.hp / MAX_HP)
+    this.hpBarFill.displayWidth = HP_BAR_WIDTH * Math.max(0, this.hp / this.maxHp)
   }
 
   takeDamage(): void {

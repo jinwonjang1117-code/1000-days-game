@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import GameScene from './GameScene'
 import { stages } from '../config/stages'
 import { TextureKeys } from '../config/textureKeys'
+import { getDifficultySettings } from '../config/difficulty'
 
 const HUD_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -275,12 +276,14 @@ export default class UIScene extends Phaser.Scene {
       fadeDuration: WON_TEXT_FADE_DURATION_MS,
     }
 
-    const title = this.fadeInTextLeftToRight('축하합니다! 1000일에 도달했습니다!', 400, 270, OVERLAY_TITLE_STYLE, wonTextTiming)
-    const line1 = this.fadeInTextLeftToRight('상품은 진원이의 편지입니다!', 400, 330, HUD_TEXT_STYLE, {
+    const difficultySettings = getDifficultySettings()
+
+    const title = this.fadeInTextLeftToRight(difficultySettings.winTitle, 400, 270, OVERLAY_TITLE_STYLE, wonTextTiming)
+    const line1 = this.fadeInTextLeftToRight(difficultySettings.winLine1, 400, 330, HUD_TEXT_STYLE, {
       ...wonTextTiming,
       startDelay: title.completeAtMs + WON_TEXT_ROW_GAP_MS,
     })
-    const line2 = this.fadeInTextLeftToRight('편지는 2층 큰 방 서랍 안에 있습니다 :)', 400, 380, HUD_TEXT_STYLE, {
+    const line2 = this.fadeInTextLeftToRight(difficultySettings.winLine2, 400, 380, HUD_TEXT_STYLE, {
       ...wonTextTiming,
       startDelay: line1.completeAtMs + WON_TEXT_ROW_GAP_MS,
     })
@@ -311,7 +314,7 @@ export default class UIScene extends Phaser.Scene {
       .setOrigin(1, 1)
       .setInteractive({ useHandCursor: true })
       .on('pointerdown', () => {
-        this.gameScene.scene.restart({ stageIndex: bossStageIndex, score: 0, playerHealth: 3 })
+        this.gameScene.scene.restart({ stageIndex: bossStageIndex, score: 0, playerHealth: getDifficultySettings().playerLives })
       })
   }
 
@@ -336,7 +339,7 @@ export default class UIScene extends Phaser.Scene {
           return
         }
 
-        this.gameScene.scene.restart({ stageIndex: stageNumber - 1, score: 0, playerHealth: 3 })
+        this.gameScene.scene.restart({ stageIndex: stageNumber - 1, score: 0, playerHealth: getDifficultySettings().playerLives })
       })
   }
 }
