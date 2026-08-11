@@ -13,7 +13,7 @@ export const PlayerState = {
 
 export type PlayerStateType = 'idle' | 'moving' | 'inhaling' | 'full'
 
-const PLAYER_WIDTH = 60
+const PLAYER_WIDTH = 64
 export const PLAYER_HEIGHT = 104
  const PLAYER_SPEED = 240
 const FULL_SPEED_MULTIPLIER = 0.5
