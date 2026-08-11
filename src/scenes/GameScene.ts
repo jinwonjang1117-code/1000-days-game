@@ -32,6 +32,7 @@ const RAIN_PROJECTILE_SPAWN_INTERVAL_MS = 300
 const RAIN_PROJECTILE_SPAWN_Y = -20
 const MINION_SAFE_DISTANCE_FROM_PLAYER = 100
 const MINION_SPAWN_PICK_ATTEMPTS = 5
+const MINION_GROUND_SPAWN_CHANCE = 0.3
 const GROUND_LEVEL_THRESHOLD_Y = 500
 const GROUND_LEVEL_FIRE_Y = 500
 const TIER1_LEVEL_FIRE_Y = 380
@@ -592,7 +593,7 @@ export default class GameScene extends Phaser.Scene {
 
   private spawnBossMinion() {
     const elevatedPlatforms = this.stagePlatforms.filter((p) => (p.height ?? PLATFORM_HEIGHT) !== GROUND_HEIGHT)
-    const targetGround = elevatedPlatforms.length === 0 || Math.random() < 0.5
+    const targetGround = elevatedPlatforms.length === 0 || Math.random() < MINION_GROUND_SPAWN_CHANCE
 
     let x: number
     let y: number
