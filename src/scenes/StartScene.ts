@@ -258,7 +258,7 @@ export default class StartScene extends Phaser.Scene {
     this.clearStepObjects()
     this.currentStep = 'characterSelect'
 
-    this.addStepObject(this.add.text(400, 100, '캐릭터 선택', TITLE_STYLE).setOrigin(0.5))
+    this.addStepObject(this.add.text(400, 100, '캐릭터를 선택하세요', TITLE_STYLE).setOrigin(0.5))
 
     const characterBorder = this.add.rectangle(400, CHARACTER_BOX_Y, CHARACTER_BOX_SIZE, CHARACTER_BOX_SIZE)
     this.addStepObject(characterBorder)
@@ -282,7 +282,7 @@ export default class StartScene extends Phaser.Scene {
 
     const selectedLabel = this.addStepObject(
       this.add
-        .text(400, CHARACTER_BOX_Y + CHARACTER_BOX_SIZE / 2 + 44, '선택됨', HIGHLIGHT_TEXT_STYLE)
+        .text(400, CHARACTER_BOX_Y + CHARACTER_BOX_SIZE / 2 + 60, '선택됨', HIGHLIGHT_TEXT_STYLE)
         .setOrigin(0.5, 0)
         .setVisible(false),
     )
@@ -308,7 +308,12 @@ export default class StartScene extends Phaser.Scene {
       })
 
     this.addStepObject(
-      this.add.text(400, CHARACTER_BOX_Y + CHARACTER_BOX_SIZE / 2 + 16, '지히 공주', BODY_TEXT_STYLE).setOrigin(0.5, 0),
+      this.add.text(400, 180, '지히 공주', BODY_TEXT_STYLE).setOrigin(0.5, 0),
+    )
+    this.addStepObject(
+      this.add
+        .text(400, CHARACTER_BOX_Y + CHARACTER_BOX_SIZE / 2 + 16, '특징: 초코 우유를 좋아함', BODY_TEXT_STYLE)
+        .setOrigin(0.5, 0),
     )
 
     this.addStepObject(
