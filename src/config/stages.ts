@@ -178,9 +178,9 @@ export const stages: StageConfig[] = [
     points: 30,
     platforms: [
       GROUND,
-      { x: 160, y: TIER1, width: 170 },
+      { x: 160, y: TIER1, width: 160 },
       { x: 400, y: TIER1, width: 170 },
-      { x: 640, y: TIER1, width: 170 },
+      { x: 640, y: TIER1, width: 160 },
       { x: 260, y: TIER2, width: 190 },
       { x: 540, y: TIER2, width: 190 },
       { x: 180, y: TIER3, width: 170 },
