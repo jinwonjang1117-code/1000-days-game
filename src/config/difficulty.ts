@@ -10,7 +10,7 @@ interface DifficultySettings {
 
 const DIFFICULTY_SETTINGS: Record<Difficulty, DifficultySettings> = {
   low: {
-    playerLives: 8,
+    playerLives: 10,
     bossHp: 8,
     winTitle: '축하합니다! 1000일에 도달했습니다!',
     winLine1: '난이도 하 상품은...',
