@@ -18,6 +18,7 @@ import { getStageIntroDurationMs } from '../config/timing'
 import { AudioKeys } from '../config/audioKeys'
 import { playBgm, playSfx, stopBgm, stopLoopingSfx, START_BGM_VOLUME } from '../config/audio'
 import { getDifficultySettings } from '../config/difficulty'
+import { getSelectedCharacter } from '../config/characters'
 
 const DAMAGE_INVINCIBILITY_MS = 1000
 const PATROL_EDGE_INSET = 40
@@ -138,7 +139,7 @@ export default class GameScene extends Phaser.Scene {
       platform.refreshBody()
     })
 
-    this.player = new Player(this, stage.playerSpawnX ?? 400, 536)
+    this.player = new Player(this, stage.playerSpawnX ?? 400, 536, getSelectedCharacter())
     this.player.setSpeedBonus(this.speedBonus)
 
     this.pickups = this.physics.add.group()
@@ -352,7 +353,7 @@ export default class GameScene extends Phaser.Scene {
       this.projectile.destroy()
     }
 
-    this.projectile = new Projectile(this, projectileX, projectileY, direction)
+    this.projectile = new Projectile(this, projectileX, projectileY, direction, getSelectedCharacter().projectileTexture)
     this.projectile.isBossMinionProjectile = this.heldEnemyIsBossMinion
     this.heldEnemyIsBossMinion = false
 

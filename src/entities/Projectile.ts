@@ -1,5 +1,4 @@
 import Phaser from 'phaser'
-import { TextureKeys } from '../config/textureKeys'
 
 const PROJECTILE_SPEED = 420
 const PROJECTILE_WIDTH = 80
@@ -9,8 +8,8 @@ export default class Projectile extends Phaser.Physics.Arcade.Sprite {
   bounceCount = 0
   isBossMinionProjectile = false
 
-  constructor(scene: Phaser.Scene, x: number, y: number, direction: -1 | 1) {
-    super(scene, x, y, TextureKeys.Projectile)
+  constructor(scene: Phaser.Scene, x: number, y: number, direction: -1 | 1, textureKey: string) {
+    super(scene, x, y, textureKey)
 
     scene.add.existing(this)
     scene.physics.add.existing(this)

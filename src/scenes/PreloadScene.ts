@@ -20,7 +20,14 @@ const PLAYER_SPRITE_PATHS = {
   full: 'assets/player_full.png',
 }
 
+const PLAYER2_SPRITE_PATHS = {
+  normal: 'assets/player2_normal.png',
+  inhaling: 'assets/player2_inhaling.png',
+  full: 'assets/player2_full.png',
+}
+
 const PROJECTILE_SPRITE_PATH = 'assets/projectile.png'
+const PROJECTILE2_SPRITE_PATH = 'assets/projectile2.png'
 
 const BOSS_SPRITE_PATHS = {
   boss: 'assets/boss.png',
@@ -55,7 +62,12 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.image(TextureKeys.PlayerInhaling, PLAYER_SPRITE_PATHS.inhaling)
     this.load.image(TextureKeys.PlayerFull, PLAYER_SPRITE_PATHS.full)
 
+    this.load.image(TextureKeys.Player2, PLAYER2_SPRITE_PATHS.normal)
+    this.load.image(TextureKeys.Player2Inhaling, PLAYER2_SPRITE_PATHS.inhaling)
+    this.load.image(TextureKeys.Player2Full, PLAYER2_SPRITE_PATHS.full)
+
     this.load.image(TextureKeys.Projectile, PROJECTILE_SPRITE_PATH)
+    this.load.image(TextureKeys.Projectile2, PROJECTILE2_SPRITE_PATH)
 
     this.load.image(TextureKeys.Boss, BOSS_SPRITE_PATHS.boss)
     this.load.image(TextureKeys.BossProjectile, BOSS_SPRITE_PATHS.projectile)

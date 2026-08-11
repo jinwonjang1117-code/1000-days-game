@@ -3,6 +3,8 @@ import { TextureKeys } from '../config/textureKeys'
 import { AudioKeys } from '../config/audioKeys'
 import { playBgm, isBgmOn, setBgmEnabled, isSfxOn, setSfxEnabled } from '../config/audio'
 import { getDifficulty, setDifficulty, getDifficultySettings } from '../config/difficulty'
+import { CHARACTERS, getSelectedCharacterId, setSelectedCharacterId } from '../config/characters'
+import type { CharacterDefinition } from '../config/characters'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -66,7 +68,7 @@ const DIFFICULTY_BUTTON_UNSELECTED_STYLE: Phaser.Types.GameObjects.Text.TextStyl
   padding: { x: 16, y: 8 },
 }
 
-const CONTROLS = ['← →  :  이동', '↑  :  점프', 'Space (길게)  :  흡입', 'Space (짧게)  :  흡입한 미니언 발사']
+const CONTROLS = ['← →  :  이동', '↑  :  점프', 'Space (길게)  :  흡입/흡수', 'Space (짧게)  :  미니언 발사']
 
 const LEFT_COLUMN_X = 220
 const RIGHT_COLUMN_X = 580
@@ -75,7 +77,7 @@ const CHARACTER_BOX_SIZE = 150
 const CHARACTER_DISPLAY_WIDTH = 70
 const CHARACTER_DISPLAY_HEIGHT = 130
 const CHARACTER_FRAME_CYCLE_MS = 500
-const CHARACTER_FRAMES = [TextureKeys.Player, TextureKeys.PlayerInhaling, TextureKeys.PlayerFull]
+const CHARACTER_OPTION_X_POSITIONS = [250, 550]
 
 const WALKING_ENEMY_MIN_SPEED = 60
 const WALKING_ENEMY_MAX_SPEED = 100
@@ -96,7 +98,7 @@ export default class StartScene extends Phaser.Scene {
   private sfxToggleButton!: Phaser.GameObjects.Text
   private currentStep: StartScreenStep = 'instructions'
   private stepObjects: Phaser.GameObjects.GameObject[] = []
-  private characterCycleTimer?: Phaser.Time.TimerEvent
+  private characterCycleTimers: Phaser.Time.TimerEvent[] = []
   private walkingEnemy?: WalkingSprite
 
   constructor() {
@@ -180,8 +182,8 @@ export default class StartScene extends Phaser.Scene {
   private clearStepObjects() {
     this.stepObjects.forEach((object) => object.destroy())
     this.stepObjects = []
-    this.characterCycleTimer?.remove()
-    this.characterCycleTimer = undefined
+    this.characterCycleTimers.forEach((timer) => timer.remove())
+    this.characterCycleTimers = []
     this.walkingEnemy = undefined
   }
 
@@ -191,7 +193,7 @@ export default class StartScene extends Phaser.Scene {
 
     this.addStepObject(this.add.text(400, 100, '1000일의 모험', TITLE_STYLE).setOrigin(0.5))
     this.addStepObject(
-      this.add.text(400, 150, '미니언을 흡입해서 처치하고, 스테이지를 클리어해서 1000일에 도달하세요!', INSTRUCTIONS_STYLE).setOrigin(0.5),
+      this.add.text(400, 150, '미니언을 처치하고, 스테이지를 클리어해서 1000일에 도달하세요!', INSTRUCTIONS_STYLE).setOrigin(0.5),
     )
 
     this.addStepObject(this.add.text(LEFT_COLUMN_X, 200, '조작법', SECTION_HEADER_STYLE).setOrigin(0.5, 0))
@@ -260,61 +262,80 @@ export default class StartScene extends Phaser.Scene {
 
     this.addStepObject(this.add.text(400, 100, '캐릭터를 선택하세요', TITLE_STYLE).setOrigin(0.5))
 
-    const characterBorder = this.add.rectangle(400, CHARACTER_BOX_Y, CHARACTER_BOX_SIZE, CHARACTER_BOX_SIZE)
-    this.addStepObject(characterBorder)
+    const options: { character: CharacterDefinition; border: Phaser.GameObjects.Rectangle; selectedLabel: Phaser.GameObjects.Text }[] = []
 
-    const characterImage = this.add
-      .image(400, CHARACTER_BOX_Y, TextureKeys.Player)
-      .setDisplaySize(CHARACTER_DISPLAY_WIDTH, CHARACTER_DISPLAY_HEIGHT)
-    this.addStepObject(characterImage)
+    const applySelection = (id: string) => {
+      options.forEach((option) => {
+        const isSelected = option.character.id === id
+        option.border.setStrokeStyle(isSelected ? 3 : 0, 0xffcc00)
+        option.selectedLabel.setVisible(isSelected)
+      })
+    }
 
-    let characterFrameIndex = 0
-    this.characterCycleTimer = this.time.addEvent({
-      delay: CHARACTER_FRAME_CYCLE_MS,
-      loop: true,
-      callback: () => {
-        characterFrameIndex = (characterFrameIndex + 1) % CHARACTER_FRAMES.length
-        characterImage
-          .setTexture(CHARACTER_FRAMES[characterFrameIndex])
-          .setDisplaySize(CHARACTER_DISPLAY_WIDTH, CHARACTER_DISPLAY_HEIGHT)
-      },
+    CHARACTERS.forEach((character, index) => {
+      const x = CHARACTER_OPTION_X_POSITIONS[index]
+
+      this.addStepObject(this.add.text(x, 180, character.name, BODY_TEXT_STYLE).setOrigin(0.5, 0))
+
+      const border = this.addStepObject(this.add.rectangle(x, CHARACTER_BOX_Y, CHARACTER_BOX_SIZE, CHARACTER_BOX_SIZE))
+
+      const image = this.addStepObject(
+        this.add
+          .image(x, CHARACTER_BOX_Y, character.normalTexture)
+          .setDisplaySize(CHARACTER_DISPLAY_WIDTH, CHARACTER_DISPLAY_HEIGHT),
+      )
+
+      const frames = [character.normalTexture, character.inhalingTexture, character.fullTexture]
+      let frameIndex = 0
+      this.characterCycleTimers.push(
+        this.time.addEvent({
+          delay: CHARACTER_FRAME_CYCLE_MS,
+          loop: true,
+          callback: () => {
+            frameIndex = (frameIndex + 1) % frames.length
+            image.setTexture(frames[frameIndex]).setDisplaySize(CHARACTER_DISPLAY_WIDTH, CHARACTER_DISPLAY_HEIGHT)
+          },
+        }),
+      )
+
+      this.addStepObject(
+        this.add
+          .text(x, CHARACTER_BOX_Y + CHARACTER_BOX_SIZE / 2 + 16, character.subtitle, BODY_TEXT_STYLE)
+          .setOrigin(0.5, 0)
+          .setWordWrapWidth(190, true),
+      )
+
+      const selectedLabel = this.addStepObject(
+        this.add
+          .text(x, CHARACTER_BOX_Y + CHARACTER_BOX_SIZE / 2 + 76, '선택됨', HIGHLIGHT_TEXT_STYLE)
+          .setOrigin(0.5, 0)
+          .setVisible(character.id === getSelectedCharacterId()),
+      )
+
+      options.push({ character, border, selectedLabel })
+
+      if (character.id === getSelectedCharacterId()) {
+        border.setStrokeStyle(3, 0xffcc00)
+      }
+
+      border
+        .setInteractive({ useHandCursor: true })
+        .on('pointerover', () => {
+          if (character.id !== getSelectedCharacterId()) {
+            border.setStrokeStyle(3, 0x666666)
+          }
+        })
+        .on('pointerout', () => {
+          if (character.id !== getSelectedCharacterId()) {
+            border.setStrokeStyle(0)
+          }
+        })
+        .on('pointerdown', () => {
+          setSelectedCharacterId(character.id)
+          applySelection(character.id)
+          this.selectCharacter(border)
+        })
     })
-
-    const selectedLabel = this.addStepObject(
-      this.add
-        .text(400, CHARACTER_BOX_Y + CHARACTER_BOX_SIZE / 2 + 60, '선택됨', HIGHLIGHT_TEXT_STYLE)
-        .setOrigin(0.5, 0)
-        .setVisible(false),
-    )
-
-    let isCharacterSelected = false
-    characterBorder
-      .setInteractive({ useHandCursor: true })
-      .on('pointerover', () => {
-        if (!isCharacterSelected) {
-          characterBorder.setStrokeStyle(3, 0x666666)
-        }
-      })
-      .on('pointerout', () => {
-        if (!isCharacterSelected) {
-          characterBorder.setStrokeStyle(0)
-        }
-      })
-      .on('pointerdown', () => {
-        isCharacterSelected = true
-        characterBorder.setStrokeStyle(3, 0xffcc00)
-        selectedLabel.setVisible(true)
-        this.selectCharacter(characterBorder)
-      })
-
-    this.addStepObject(
-      this.add.text(400, 180, '지히 공주', BODY_TEXT_STYLE).setOrigin(0.5, 0),
-    )
-    this.addStepObject(
-      this.add
-        .text(400, CHARACTER_BOX_Y + CHARACTER_BOX_SIZE / 2 + 16, '특징: 초코 우유를 좋아함', BODY_TEXT_STYLE)
-        .setOrigin(0.5, 0),
-    )
 
     this.addStepObject(
       this.add

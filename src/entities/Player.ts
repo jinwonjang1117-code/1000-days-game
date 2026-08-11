@@ -1,8 +1,8 @@
 import Phaser from 'phaser'
-import { TextureKeys } from '../config/textureKeys'
 import { WORLD_GRAVITY_Y } from '../config/physics'
 import { AudioKeys } from '../config/audioKeys'
 import { playSfx, startLoopingSfx, stopLoopingSfx } from '../config/audio'
+import type { CharacterSpriteSet } from '../config/characters'
 
 export const PlayerState = {
   IDLE: 'idle',
@@ -32,9 +32,12 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   private isInhaleLooping = false
   private speedBonus = 0
   private inhaleZone: Phaser.GameObjects.Zone
+  private spriteSet: CharacterSpriteSet
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
-    super(scene, x, y, TextureKeys.Player)
+  constructor(scene: Phaser.Scene, x: number, y: number, spriteSet: CharacterSpriteSet) {
+    super(scene, x, y, spriteSet.normalTexture)
+
+    this.spriteSet = spriteSet
 
     scene.add.existing(this)
     scene.physics.add.existing(this)
@@ -195,11 +198,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
 
   private getTextureKeyForState(): string {
     if (this.state === PlayerState.FULL) {
-      return TextureKeys.PlayerFull
+      return this.spriteSet.fullTexture
     }
     if (this.state === PlayerState.INHALING) {
-      return TextureKeys.PlayerInhaling
+      return this.spriteSet.inhalingTexture
     }
-    return TextureKeys.Player
+    return this.spriteSet.normalTexture
   }
 }
