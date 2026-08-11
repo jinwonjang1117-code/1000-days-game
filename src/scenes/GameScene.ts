@@ -505,6 +505,7 @@ export default class GameScene extends Phaser.Scene {
     const isFinalStage = nextStageIndex >= stages.length
 
     this.events.emit('stageCleared', { isFinalStage })
+    stopBgm()
     playSfx(this, AudioKeys.StageClear, 0.2)
 
     if (isFinalStage) {

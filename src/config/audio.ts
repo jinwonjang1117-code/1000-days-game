@@ -45,8 +45,20 @@ export function playBgm(scene: Phaser.Scene, key: string, volume: number = BGM_V
     return
   }
 
-  currentBgm = scene.sound.add(key, { loop: true, volume, mute: !bgmEnabled })
-  currentBgm.play()
+  const sound = scene.sound.add(key, { loop: true, volume, mute: !bgmEnabled })
+
+  // `loop: true` should handle this on its own, but explicitly replaying on
+  // COMPLETE guarantees the track keeps going even if looping doesn't kick
+  // in for some reason (a looping sound never fires COMPLETE, so this is a
+  // no-op belt-and-suspenders fallback, not a duplicate loop mechanism).
+  sound.on(Phaser.Sound.Events.COMPLETE, () => {
+    if (currentBgm === sound) {
+      sound.play()
+    }
+  })
+
+  sound.play()
+  currentBgm = sound
   currentBgmKey = key
 }
 
