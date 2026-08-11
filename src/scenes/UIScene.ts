@@ -2,7 +2,6 @@ import Phaser from 'phaser'
 import GameScene from './GameScene'
 import { stages } from '../config/stages'
 import { TextureKeys } from '../config/textureKeys'
-import { getStageIntroDurationMs } from '../config/timing'
 
 const HUD_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -28,6 +27,10 @@ const OVERLAY_ALPHA_WELCOME = 1
 const WON_TEXT_PER_LETTER_DELAY_MS = 80
 const WON_TEXT_FADE_DURATION_MS = 60
 const WON_TEXT_ROW_GAP_MS = 500
+
+const STAGE_INTRO_PER_LETTER_DELAY_MS = 90
+const STAGE_INTRO_FADE_DURATION_MS = 70
+const STAGE_INTRO_HOLD_MS = 800
 
 const BOUNCING_ENEMY_MIN_SPEED = 120
 const BOUNCING_ENEMY_MAX_SPEED = 200
@@ -188,13 +191,32 @@ export default class UIScene extends Phaser.Scene {
     this.overlayBackground.setAlpha(OVERLAY_ALPHA_WELCOME).setVisible(true)
     this.overlayTitleText.setText(`Stage ${this.gameScene.stageNumber}`).setVisible(true)
 
-    const welcomeMessage = `Welcome to ${this.gameScene.stageName}`
-    const { letters: welcomeLetters } = this.fadeInTextLeftToRight(welcomeMessage, 400, 330, HUD_TEXT_STYLE)
+    const introTextTiming = {
+      perLetterDelay: STAGE_INTRO_PER_LETTER_DELAY_MS,
+      fadeDuration: STAGE_INTRO_FADE_DURATION_MS,
+    }
 
-    this.time.delayedCall(getStageIntroDurationMs(this.gameScene.stageName), () => {
+    const welcomeMessage = `Welcome to ${this.gameScene.stageName}`
+    const { letters: welcomeLetters, completeAtMs: welcomeCompleteAtMs } =
+      this.fadeInTextLeftToRight(welcomeMessage, 400, 330, HUD_TEXT_STYLE, introTextTiming)
+
+    const projectedScore = this.gameScene.score + this.gameScene.stagePoints
+    const { letters: scoreLetters, completeAtMs: scoreCompleteAtMs } = this.fadeInTextLeftToRight(
+      `D+${projectedScore}`,
+      400,
+      370,
+      HUD_TEXT_STYLE,
+      { ...introTextTiming, startDelay: welcomeCompleteAtMs },
+    )
+
+    // Tied to when the text actually finishes animating (plus a hold), not
+    // just a rough length-based estimate, so there's always a beat to read
+    // both lines before they vanish.
+    this.time.delayedCall(scoreCompleteAtMs + STAGE_INTRO_HOLD_MS, () => {
       this.overlayBackground.setVisible(false)
       this.overlayTitleText.setVisible(false)
       welcomeLetters.forEach((letter) => letter.destroy())
+      scoreLetters.forEach((letter) => letter.destroy())
     })
   }
 
