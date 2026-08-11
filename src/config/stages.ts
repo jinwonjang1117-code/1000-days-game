@@ -115,7 +115,7 @@ export const stages: StageConfig[] = [
       { x: 620, y: TIER1, width: 220 },
       { x: 400, y: TIER2, width: 260 },
       { x: 180, y: TIER3, width: 200 },
-      { x: 640, y: TIER3, width: 200 },
+      { x: 640, y: TIER3, width: 180 },
     ],
     enemies: [
       { type: 'normal', x: 180, y: TIER1 - 80 },
