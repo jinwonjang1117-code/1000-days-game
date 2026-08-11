@@ -43,7 +43,7 @@ export const stages: StageConfig[] = [
     // Level 2: one low platform introduces jumping (no enemy on it yet).
     level: 2,
     name: 'Las Vegas',
-    points: 100,
+    points: 63,
     platforms: [GROUND, { x: 400, y: TIER1, width: 280 }],
     enemies: [
       { type: 'normal', x: 250, y: 490 },
@@ -54,7 +54,7 @@ export const stages: StageConfig[] = [
     // Level 3: two low platforms with a gap, plus a ghost to dodge.
     level: 3,
     name: 'New York',
-    points: 100,
+    points: 77,
     platforms: [
       GROUND,
       { x: 180, y: TIER1, width: 220 },
@@ -70,7 +70,7 @@ export const stages: StageConfig[] = [
     // Level 4: adds a center platform and the flyer's ranged attacks.
     level: 4,
     name: 'Seattle',
-    points: 100,
+    points: 136,
     platforms: [
       GROUND,
       { x: 180, y: TIER1, width: 220 },
@@ -88,7 +88,7 @@ export const stages: StageConfig[] = [
     // Level 5: adds a narrow top-center platform, one tier higher.
     level: 5,
     name: '1328 S Brook Dr (Summer)',
-    points: 100,
+    points: 151,
     platforms: [
       GROUND,
       { x: 180, y: TIER1, width: 220 },
@@ -108,7 +108,7 @@ export const stages: StageConfig[] = [
     // Level 6: full symmetric six-platform climb.
     level: 6,
     name: 'San Francisco',
-    points: 100,
+    points: 128,
     platforms: [
       GROUND,
       { x: 180, y: TIER1, width: 220 },
@@ -130,7 +130,7 @@ export const stages: StageConfig[] = [
     // Level 7: asymmetric layout, introduces the fourth (highest) tier.
     level: 7,
     name: '1328 S Brook Dr (Winter)',
-    points: 100,
+    points: 150,
     platforms: [
       GROUND,
       { x: 200, y: TIER1, width: 200 },
@@ -152,7 +152,7 @@ export const stages: StageConfig[] = [
     // Level 8: narrower platforms, three columns, tighter precision.
     level: 8,
     name: 'Lights Festival',
-    points: 100,
+    points: 21,
     platforms: [
       GROUND,
       { x: 160, y: TIER1, width: 120 },
@@ -175,7 +175,7 @@ export const stages: StageConfig[] = [
     // Level 9: dense nine-platform layout, two flyers.
     level: 9,
     name: 'Sphere with Illenium',
-    points: 100,
+    points: 30,
     platforms: [
       GROUND,
       { x: 160, y: TIER1, width: 170 },
@@ -206,7 +206,7 @@ export const stages: StageConfig[] = [
     // a climbable path up to the same height as the boss's platform.
     level: 10,
     name: 'The Yurtopian (Proposal Day)',
-    points: 100,
+    points: 49,
     platforms: [
       GROUND,
       { x: 585, y: TIER3, width: 370 },

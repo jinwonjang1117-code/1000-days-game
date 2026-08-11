@@ -71,3 +71,31 @@ export function playSfx(
   sound.once(Phaser.Sound.Events.COMPLETE, () => sound.destroy())
   return sound
 }
+
+// For SFX that should sustain for as long as an action is held (e.g. inhaling)
+// rather than play once to completion. Only one looping SFX plays at a time.
+let currentLoopingSfxKey: string | null = null
+let currentLoopingSfx: Phaser.Sound.BaseSound | null = null
+
+export function startLoopingSfx(scene: Phaser.Scene, key: string, volume: number = SFX_VOLUME) {
+  if (currentLoopingSfxKey === key && currentLoopingSfx?.isPlaying) {
+    return
+  }
+
+  stopLoopingSfx()
+
+  if (!sfxEnabled || !scene.cache.audio.exists(key)) {
+    return
+  }
+
+  currentLoopingSfx = scene.sound.add(key, { loop: true, volume })
+  currentLoopingSfx.play()
+  currentLoopingSfxKey = key
+}
+
+export function stopLoopingSfx() {
+  currentLoopingSfx?.stop()
+  currentLoopingSfx?.destroy()
+  currentLoopingSfx = null
+  currentLoopingSfxKey = null
+}

@@ -7,6 +7,7 @@ export const AudioKeys = {
   BossRain: 'sfx-boss-rain',
   PickupConsume: 'sfx-pickup',
   PlayerInhale: 'sfx-player-inhale',
+  PlayerSwallow: 'sfx-player-swallow',
   PlayerSpit: 'sfx-player-spit',
   PlayerHit: 'sfx-player-hit',
   EnemyHit: 'sfx-enemy-hit',

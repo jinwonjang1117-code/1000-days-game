@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { TextureKeys } from '../config/textureKeys'
 import { WORLD_GRAVITY_Y } from '../config/physics'
 import { AudioKeys } from '../config/audioKeys'
-import { playSfx } from '../config/audio'
+import { playSfx, startLoopingSfx, stopLoopingSfx } from '../config/audio'
 
 export const PlayerState = {
   IDLE: 'idle',
@@ -29,6 +29,7 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
   private spaceKey: Phaser.Input.Keyboard.Key
   private spitRequested = false
   private awaitingSpaceRelease = false
+  private isInhaleLooping = false
   private speedBonus = 0
   private inhaleZone: Phaser.GameObjects.Zone
 
@@ -90,8 +91,9 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     }
 
     if (inhaleDown) {
-      if (this.state !== PlayerState.INHALING) {
-        playSfx(this.scene, AudioKeys.PlayerInhale)
+      if (!this.isInhaleLooping) {
+        startLoopingSfx(this.scene, AudioKeys.PlayerInhale, 1.0)
+        this.isInhaleLooping = true
       }
       this.state = PlayerState.INHALING
       this.activateInhaleZone()
@@ -99,6 +101,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
       this.deactivateInhaleZone()
       if (this.state === PlayerState.INHALING) {
         this.state = this.heldEnemy ? PlayerState.FULL : this.state
+      }
+      if (this.isInhaleLooping) {
+        stopLoopingSfx()
+        this.isInhaleLooping = false
       }
     }
 
@@ -146,6 +152,10 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.heldEnemy = true
     this.state = PlayerState.FULL
     this.deactivateInhaleZone()
+    if (this.isInhaleLooping) {
+      stopLoopingSfx()
+      this.isInhaleLooping = false
+    }
     enemy.destroy()
   }
 

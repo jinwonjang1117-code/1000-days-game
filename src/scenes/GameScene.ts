@@ -16,7 +16,7 @@ import type { EnemySpawnConfig } from '../config/stages'
 import { stages } from '../config/stages'
 import { getStageIntroDurationMs } from '../config/timing'
 import { AudioKeys } from '../config/audioKeys'
-import { playBgm, playSfx, stopBgm, START_BGM_VOLUME } from '../config/audio'
+import { playBgm, playSfx, stopBgm, stopLoopingSfx, START_BGM_VOLUME } from '../config/audio'
 
 const DAMAGE_INVINCIBILITY_MS = 1000
 const PATROL_EDGE_INSET = 40
@@ -89,6 +89,14 @@ export default class GameScene extends Phaser.Scene {
     return stages[this.stageIndex].name
   }
 
+  public get stagePoints(): number {
+    return stages[this.stageIndex].points
+  }
+
+  public get isStageCleared(): boolean {
+    return this.stageCleared
+  }
+
   create(data: GameSceneData) {
     this.stageIndex = data?.stageIndex ?? 0
     this.score = data?.score ?? 100
@@ -108,7 +116,7 @@ export default class GameScene extends Phaser.Scene {
     this.stagePlatforms = stage.platforms
     this.isBossLevel = stage.isBossLevel ?? false
 
-    playBgm(this, this.isBossLevel ? AudioKeys.BossBgm : AudioKeys.GameplayBgm)
+    playBgm(this, this.isBossLevel ? AudioKeys.BossBgm : AudioKeys.GameplayBgm, 0.1)
 
     this.scene.launch('UIScene')
 
@@ -361,10 +369,13 @@ export default class GameScene extends Phaser.Scene {
       return
     }
 
+    const enemyDeathX = enemy.x
+    const enemyDeathY = enemy.y
+
     projectile?.destroy()
     enemy?.destroy()
     playSfx(this, AudioKeys.EnemyHit)
-    this.spawnPickup(enemy.x, enemy.y - 24)
+    this.spawnPickup(enemyDeathX, enemyDeathY - 24)
     this.checkStageClear()
   }
 
@@ -377,10 +388,12 @@ export default class GameScene extends Phaser.Scene {
   ) {
     const pickup = this.pickups.create(x, y, textureKey) as Phaser.Physics.Arcade.Image
     pickup.setDisplaySize(size, size)
+    pickup.setData('isWinPickup', isWinPickup)
+
     pickup.setBounce(0.6)
     pickup.setCollideWorldBounds(true)
     pickup.setVelocity(Phaser.Math.Between(-100, 100), -250)
-    pickup.setData('isWinPickup', isWinPickup)
+
     return pickup
   }
 
@@ -408,6 +421,7 @@ export default class GameScene extends Phaser.Scene {
   private handleGameWon() {
     this.isGameWon = true
     this.physics.world.pause()
+    stopLoopingSfx()
 
     const victorySound = playSfx(this, AudioKeys.Victory)
     if (victorySound) {
@@ -471,6 +485,7 @@ export default class GameScene extends Phaser.Scene {
     this.isGameOver = true
     this.physics.world.pause()
     stopBgm()
+    stopLoopingSfx()
     playSfx(this, AudioKeys.Lose)
     this.events.emit('gameOver', this.score)
   }
@@ -490,7 +505,7 @@ export default class GameScene extends Phaser.Scene {
     const isFinalStage = nextStageIndex >= stages.length
 
     this.events.emit('stageCleared', { isFinalStage })
-    playSfx(this, AudioKeys.StageClear, 0.5)
+    playSfx(this, AudioKeys.StageClear, 0.3)
 
     if (isFinalStage) {
       this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
@@ -527,6 +542,7 @@ export default class GameScene extends Phaser.Scene {
       enemyBody?.setVelocity(0, 0)
       this.heldEnemyIsBossMinion = enemy.isBossMinion
       this.player.captureEnemy(enemy)
+      playSfx(this, AudioKeys.PlayerSwallow)
       this.capturingEnemy = null
       this.checkStageClear()
       return
@@ -650,6 +666,7 @@ export default class GameScene extends Phaser.Scene {
 
     projectile.destroy()
     this.boss?.takeDamage()
+    playSfx(this, AudioKeys.EnemyHit)
   }
 
   private handleBossDefeatStarted() {

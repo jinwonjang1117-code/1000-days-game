@@ -79,6 +79,7 @@ export default class PreloadScene extends Phaser.Scene {
     this.load.audio(AudioKeys.BossRain, 'assets/sfx-boss-rain.wav')
     this.load.audio(AudioKeys.PickupConsume, 'assets/sfx-pickup.wav')
     this.load.audio(AudioKeys.PlayerInhale, 'assets/sfx-player-inhale.wav')
+    this.load.audio(AudioKeys.PlayerSwallow, 'assets/sfx-player-swallow.wav')
     this.load.audio(AudioKeys.PlayerSpit, 'assets/sfx-player-spit.wav')
     this.load.audio(AudioKeys.PlayerHit, 'assets/sfx-player-hit.wav')
     this.load.audio(AudioKeys.EnemyHit, 'assets/sfx-enemy-hit.wav')

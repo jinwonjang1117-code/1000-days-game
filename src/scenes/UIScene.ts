@@ -153,8 +153,13 @@ export default class UIScene extends Phaser.Scene {
     })
   }
 
-  private updateScoreText(score: number) {
-    this.scoreText.setText(`사귄 일수: ${score}일`)
+  private updateScoreText(_score: number) {
+    // this.gameScene.score already includes the current stage's points once
+    // it's been cleared (checkStageClear adds them before the scene restarts
+    // and stageIndex advances), so only project them while still in progress
+    // to avoid counting the same stage's points twice during that window.
+    const projectedScore = this.gameScene.score + (this.gameScene.isStageCleared ? 0 : this.gameScene.stagePoints)
+    this.scoreText.setText(`사귄 일수: ${projectedScore}일`)
   }
 
   private updatePickupText(pickupCount: number) {
