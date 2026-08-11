@@ -116,7 +116,7 @@ export default class GameScene extends Phaser.Scene {
     this.stagePlatforms = stage.platforms
     this.isBossLevel = stage.isBossLevel ?? false
 
-    playBgm(this, this.isBossLevel ? AudioKeys.BossBgm : AudioKeys.GameplayBgm, 0.1)
+    playBgm(this, this.isBossLevel ? AudioKeys.BossBgm : AudioKeys.GameplayBgm, 0.2)
 
     this.scene.launch('UIScene')
 
@@ -505,7 +505,7 @@ export default class GameScene extends Phaser.Scene {
     const isFinalStage = nextStageIndex >= stages.length
 
     this.events.emit('stageCleared', { isFinalStage })
-    playSfx(this, AudioKeys.StageClear, 0.3)
+    playSfx(this, AudioKeys.StageClear, 0.2)
 
     if (isFinalStage) {
       this.time.delayedCall(STAGE_TRANSITION_DELAY_MS, () => {
