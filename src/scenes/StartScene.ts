@@ -240,7 +240,7 @@ export default class StartScene extends Phaser.Scene {
     updateDifficultyButtonStyles()
 
     this.addStepObject(
-      this.add.text(400, 485, '다음 화면에서 캐릭터를 선택하세요', INSTRUCTIONS_STYLE).setOrigin(0.5),
+      this.add.text(400, 485, '난이도에 따라 승리 시 상품이 달라집니다', INSTRUCTIONS_STYLE).setOrigin(0.5),
     )
 
     this.addStepObject(
