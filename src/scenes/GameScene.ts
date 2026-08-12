@@ -398,9 +398,17 @@ export default class GameScene extends Phaser.Scene {
     // on its first preUpdate — a frame later. Until then the body is larger
     // than the 800x600 world, so setCollideWorldBounds below can clamp it to
     // the world floor and drag the sprite down with it, making the pickup
-    // appear at ground level instead of where the enemy died. Syncing the
-    // body to the already-scaled sprite now closes that window.
-    ;(pickup.body as Phaser.Physics.Arcade.Body).updateFromGameObject()
+    // appear at ground level instead of where the enemy died.
+    //
+    // This mirrors what Body.preUpdate does (Body.js:1122) to close that
+    // window: sync the body to the already-scaled sprite, then re-capture
+    // prev/prevFrame. That second step matters — postUpdate applies
+    // (position - prevFrame) to the sprite as movement, so syncing position
+    // alone would fling the pickup by the difference.
+    const body = pickup.body as Phaser.Physics.Arcade.Body
+    body.updateFromGameObject()
+    body.prev.copy(body.position)
+    body.prevFrame.copy(body.position)
 
     pickup.setBounce(0.6)
     pickup.setCollideWorldBounds(true)
