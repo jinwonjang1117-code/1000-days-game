@@ -393,6 +393,15 @@ export default class GameScene extends Phaser.Scene {
     pickup.setDisplaySize(size, size)
     pickup.setData('isWinPickup', isWinPickup)
 
+    // The Arcade body is created from the texture's NATIVE size (gem.png is
+    // 1254x1254, diamond.png 1000x1000) and only shrinks to the display size
+    // on its first preUpdate — a frame later. Until then the body is larger
+    // than the 800x600 world, so setCollideWorldBounds below can clamp it to
+    // the world floor and drag the sprite down with it, making the pickup
+    // appear at ground level instead of where the enemy died. Syncing the
+    // body to the already-scaled sprite now closes that window.
+    ;(pickup.body as Phaser.Physics.Arcade.Body).updateFromGameObject()
+
     pickup.setBounce(0.6)
     pickup.setCollideWorldBounds(true)
     pickup.setVelocity(Phaser.Math.Between(-100, 100), -250)
