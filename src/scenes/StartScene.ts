@@ -68,7 +68,7 @@ const DIFFICULTY_BUTTON_UNSELECTED_STYLE: Phaser.Types.GameObjects.Text.TextStyl
   padding: { x: 16, y: 8 },
 }
 
-const CONTROLS = ['← →  :  이동', '↑  :  점프', 'Space (길게)  :  흡입/흡수', 'Space (짧게)  :  미니언 발사']
+const CONTROLS = ['← →  :  이동', '↑  :  점프', 'Space (길게)  :  흡입/흡수', 'Space (짧게)  :  공격 발사']
 
 const LEFT_COLUMN_X = 220
 const RIGHT_COLUMN_X = 580
