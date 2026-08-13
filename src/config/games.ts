@@ -2,6 +2,9 @@ import Phaser from 'phaser'
 import { ThousandDaysScenes } from '../games/thousandDays/sceneKeys'
 import { TextureKeys } from '../games/thousandDays/config/textureKeys'
 import { loadThousandDaysAssets, THOUSAND_DAYS_PLAYER_THUMBNAIL } from '../games/thousandDays/assets'
+import { TeamGameScenes } from '../games/teamGame/sceneKeys'
+import { TEAM_GAME_ID, TEAM_GAME_TITLE, TEAM_GAME_DESCRIPTION } from '../games/teamGame/gameId'
+import { loadTeamGameAssets, generateTeamGameThumbnail, TEAM_GAME_THUMBNAIL_KEY } from '../games/teamGame/assets'
 
 export interface GameDefinition {
   /** Stable identifier, also used to remember whether assets are loaded. */
@@ -12,10 +15,12 @@ export interface GameDefinition {
   /** Scene key started once this game's assets have loaded. */
   sceneKey: string
   /**
-   * Small image for the hub card. The hub loads this itself, so keep it tiny —
-   * it is downloaded on first paint, before any game is chosen.
+   * Small image for the hub card. The hub loads/generates this itself, so
+   * keep it tiny — it happens on first paint, before any game is chosen.
+   * `path` loads a real asset file; `generate` builds a placeholder texture
+   * at runtime for games that don't have real art yet.
    */
-  thumbnail: { key: string; path: string }
+  thumbnail: { key: string; path: string } | { key: string; generate: (scene: Phaser.Scene) => void }
   /** Queues this game's assets. Only called after the player picks the game. */
   loadAssets: (scene: Phaser.Scene) => void
   /** Optional sprite that walks the loading bar; must come from loadAssets. */
@@ -34,6 +39,14 @@ export const GAMES: GameDefinition[] = [
     thumbnail: { key: 'thumb-thousand-days', path: THOUSAND_DAYS_PLAYER_THUMBNAIL },
     loadAssets: loadThousandDaysAssets,
     loadingRunnerTexture: TextureKeys.Enemy,
+  },
+  {
+    id: TEAM_GAME_ID,
+    title: TEAM_GAME_TITLE,
+    description: TEAM_GAME_DESCRIPTION,
+    sceneKey: TeamGameScenes.Lobby,
+    thumbnail: { key: TEAM_GAME_THUMBNAIL_KEY, generate: generateTeamGameThumbnail },
+    loadAssets: loadTeamGameAssets,
   },
 ]
 

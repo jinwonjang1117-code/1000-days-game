@@ -5,6 +5,8 @@ import type { GameDefinition } from '../config/games'
 import { playBgm } from '../config/audio'
 import { createAudioToggleButtons } from '../ui/audioToggles'
 import { currentRouteGameId, navigateToGame } from '../router'
+import { createNameInput } from '../ui/nameInput'
+import type { NameInputHandle } from '../ui/nameInput'
 
 const HOME_BGM_KEY = 'bgm-home'
 
@@ -48,6 +50,8 @@ const CARD_THUMBNAIL_WIDTH = 60
 const CARD_THUMBNAIL_HEIGHT = 100
 
 export default class MainMenuScene extends Phaser.Scene {
+  private nameInput: NameInputHandle | null = null
+
   constructor() {
     super({ key: CoreScenes.MainMenu })
   }
@@ -57,7 +61,11 @@ export default class MainMenuScene extends Phaser.Scene {
   // actually picked.
   preload() {
     GAMES.forEach((game) => {
-      this.load.image(game.thumbnail.key, game.thumbnail.path)
+      if ('path' in game.thumbnail) {
+        this.load.image(game.thumbnail.key, game.thumbnail.path)
+      } else {
+        game.thumbnail.generate(this)
+      }
     })
     this.load.audio(HOME_BGM_KEY, 'assets/bgm-home.mp3')
   }
@@ -76,6 +84,12 @@ export default class MainMenuScene extends Phaser.Scene {
     // playBgm() takes care of stopping whatever game BGM was playing.
     playBgm(this, HOME_BGM_KEY)
     createAudioToggleButtons(this)
+
+    this.nameInput = createNameInput()
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.nameInput?.destroy()
+      this.nameInput = null
+    })
 
     this.add.text(400, 90, '진원이와 지희의 게임 허브', TITLE_STYLE).setOrigin(0.5)
     this.add.text(400, 140, '플레이할 게임을 선택하세요', SUBTITLE_STYLE).setOrigin(0.5)

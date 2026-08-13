@@ -69,12 +69,141 @@ body {
   margin: 0 auto;
   overflow: hidden;
   box-sizing: border-box;
+  position: relative;
 }
 
 #app canvas {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+/* Overlays a DOM text input on top of the Phaser canvas (see src/ui/domOverlay.ts) */
+.dom-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 10;
+}
+
+.dom-overlay-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+  background: #1a1a2e;
+  border: 2px solid #ffcc00;
+  border-radius: 8px;
+  font-family: monospace;
+}
+
+.dom-overlay-input {
+  font-family: monospace;
+  font-size: 20px;
+  letter-spacing: 4px;
+  text-align: center;
+  padding: 8px 12px;
+  border: 2px solid #666666;
+  border-radius: 4px;
+  background: #111827;
+  color: #ffffff;
+  width: 200px;
+}
+
+.dom-overlay-input:focus {
+  outline: none;
+  border-color: #ffcc00;
+}
+
+.dom-overlay-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.dom-overlay-button {
+  font-family: monospace;
+  font-size: 14px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: #00000080;
+  color: #ffffff;
+}
+
+.dom-overlay-button-primary {
+  background: #ffcc00;
+  color: #000000;
+  font-weight: bold;
+}
+
+/* Persistent hub name field (see src/ui/nameInput.ts) */
+.name-input-wrapper {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: monospace;
+  font-size: 13px;
+  z-index: 5;
+}
+
+.name-input-label {
+  color: #cccccc;
+}
+
+.name-input-field {
+  font-family: monospace;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid #666666;
+  border-radius: 4px;
+  background: #00000080;
+  color: #ffffff;
+  width: 120px;
+}
+
+.name-input-field:focus {
+  outline: none;
+  border-color: #ffcc00;
+}
+
+.name-input-save {
+  font-family: monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: #ffcc00;
+  color: #000000;
+}
+
+.name-input-display {
+  cursor: pointer;
+  color: #ffffff;
+  border-bottom: 1px dashed transparent;
+}
+
+.name-input-display:hover {
+  border-bottom-color: #ffcc00;
+}
+
+.name-input-logout {
+  font-family: monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: #00000080;
+  color: #ffffff;
 }
 
 h1,
