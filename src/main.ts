@@ -1,5 +1,7 @@
 import './style.css'
 import Phaser from 'phaser'
 import gameConfig from './config/gameConfig'
+import { initRouter } from './router'
 
-new Phaser.Game(gameConfig)
+const game = new Phaser.Game(gameConfig)
+initRouter(game)

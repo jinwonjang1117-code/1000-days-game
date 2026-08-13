@@ -4,6 +4,7 @@ import { GAMES } from '../config/games'
 import type { GameDefinition } from '../config/games'
 import { playBgm } from '../config/audio'
 import { createAudioToggleButtons } from '../ui/audioToggles'
+import { currentRouteGameId, navigateToGame } from '../router'
 
 const HOME_BGM_KEY = 'bgm-home'
 
@@ -62,6 +63,14 @@ export default class MainMenuScene extends Phaser.Scene {
   }
 
   create() {
+    // Landing directly on a game's URL (e.g. a hard refresh on /thousand-days)
+    // skips the hub entirely and goes straight into that game's own loading flow.
+    const routedGameId = currentRouteGameId()
+    if (routedGameId) {
+      this.scene.start(CoreScenes.Preload, { gameId: routedGameId })
+      return
+    }
+
     this.cameras.main.setBackgroundColor('#1a1a2e')
     // Returning here mid-game switches straight back to the hub's own BGM —
     // playBgm() takes care of stopping whatever game BGM was playing.
@@ -97,7 +106,10 @@ export default class MainMenuScene extends Phaser.Scene {
     border
       .on('pointerover', () => border.setStrokeStyle(3, 0xffcc00))
       .on('pointerout', () => border.setStrokeStyle(2, 0x666666))
-      .on('pointerdown', () => this.scene.start(CoreScenes.Preload, { gameId: game.id }))
+      .on('pointerdown', () => {
+        navigateToGame(game.id)
+        this.scene.start(CoreScenes.Preload, { gameId: game.id })
+      })
   }
 
   private createPlaceholderCard(x: number) {

@@ -8,6 +8,7 @@ import { getDifficulty, setDifficulty, getDifficultySettings } from '../config/d
 import { CHARACTERS, getSelectedCharacterId, setSelectedCharacterId } from '../config/characters'
 import type { CharacterDefinition } from '../config/characters'
 import { createAudioToggleButtons, TOGGLE_BUTTON_STYLE } from '../../../ui/audioToggles'
+import { navigateToHub } from '../../../router'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -234,7 +235,10 @@ export default class StartScene extends Phaser.Scene {
         .text(16, 588, '← 게임 허브', TOGGLE_BUTTON_STYLE)
         .setOrigin(0, 1)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.scene.start(CoreScenes.MainMenu)),
+        .on('pointerdown', () => {
+          navigateToHub()
+          this.scene.start(CoreScenes.MainMenu)
+        }),
     )
 
     this.spawnWalkingEnemy()
