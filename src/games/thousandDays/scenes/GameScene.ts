@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { ThousandDaysScenes } from '../sceneKeys'
 import Player, { PLAYER_HEIGHT } from '../entities/Player'
 import Projectile from '../entities/Projectile'
 import Enemy from '../entities/Enemy'
@@ -16,7 +17,7 @@ import type { EnemySpawnConfig } from '../config/stages'
 import { stages } from '../config/stages'
 import { getStageIntroDurationMs } from '../config/timing'
 import { AudioKeys } from '../config/audioKeys'
-import { playBgm, playSfx, stopBgm, stopLoopingSfx, START_BGM_VOLUME } from '../config/audio'
+import { playBgm, playSfx, stopBgm, stopLoopingSfx, START_BGM_VOLUME } from '../../../config/audio'
 import { getDifficultySettings } from '../config/difficulty'
 import { getSelectedCharacter } from '../config/characters'
 
@@ -77,7 +78,7 @@ export default class GameScene extends Phaser.Scene {
   private isStageIntroActive = false
 
   constructor() {
-    super({ key: 'GameScene' })
+    super({ key: ThousandDaysScenes.Game })
   }
 
   public get stageNumber(): number {
@@ -121,7 +122,7 @@ export default class GameScene extends Phaser.Scene {
 
     playBgm(this, this.isBossLevel ? AudioKeys.BossBgm : AudioKeys.GameplayBgm, 0.2)
 
-    this.scene.launch('UIScene')
+    this.scene.launch(ThousandDaysScenes.UI)
 
     this.cameras.main.setBackgroundColor('#1a1a2e')
 
@@ -215,8 +216,8 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.isGameOver || this.isGameWon) {
       if (Phaser.Input.Keyboard.JustDown(this.restartKey)) {
-        this.scene.stop('UIScene')
-        this.scene.start('StartScene')
+        this.scene.stop(ThousandDaysScenes.UI)
+        this.scene.start(ThousandDaysScenes.Start)
       }
       return
     }

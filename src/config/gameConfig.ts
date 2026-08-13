@@ -1,8 +1,9 @@
 import Phaser from 'phaser'
 import PreloadScene from '../scenes/PreloadScene'
-import StartScene from '../scenes/StartScene'
-import GameScene from '../scenes/GameScene'
-import UIScene from '../scenes/UIScene'
+import MainMenuScene from '../scenes/MainMenuScene'
+import StartScene from '../games/thousandDays/scenes/StartScene'
+import GameScene from '../games/thousandDays/scenes/GameScene'
+import UIScene from '../games/thousandDays/scenes/UIScene'
 
 const gameConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -23,7 +24,9 @@ const gameConfig: Phaser.Types.Core.GameConfig = {
   render: {
     roundPixels: true,
   },
-  scene: [PreloadScene, StartScene, GameScene, UIScene],
+  // MainMenuScene boots first: the hub is light, and each game's assets are
+  // fetched by PreloadScene only once that game is chosen.
+  scene: [MainMenuScene, PreloadScene, StartScene, GameScene, UIScene],
   backgroundColor: '#000000',
 }
 

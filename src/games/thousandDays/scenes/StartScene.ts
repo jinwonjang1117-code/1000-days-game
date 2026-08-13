@@ -1,10 +1,13 @@
 import Phaser from 'phaser'
+import { ThousandDaysScenes } from '../sceneKeys'
+import { CoreScenes } from '../../../config/sceneKeys'
 import { TextureKeys } from '../config/textureKeys'
 import { AudioKeys } from '../config/audioKeys'
-import { playBgm, isBgmOn, setBgmEnabled, isSfxOn, setSfxEnabled } from '../config/audio'
+import { playBgm, START_BGM_VOLUME } from '../../../config/audio'
 import { getDifficulty, setDifficulty, getDifficultySettings } from '../config/difficulty'
 import { CHARACTERS, getSelectedCharacterId, setSelectedCharacterId } from '../config/characters'
 import type { CharacterDefinition } from '../config/characters'
+import { createAudioToggleButtons, TOGGLE_BUTTON_STYLE } from '../../../ui/audioToggles'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -42,14 +45,6 @@ const START_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#000000',
   backgroundColor: '#ffcc00',
   padding: { x: 28, y: 12 },
-}
-
-const TOGGLE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
-  fontFamily: 'monospace',
-  fontSize: '14px',
-  color: '#ffffff',
-  backgroundColor: '#00000080',
-  padding: { x: 8, y: 4 },
 }
 
 const DIFFICULTY_BUTTON_SELECTED_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -94,38 +89,19 @@ interface WalkingSprite {
 }
 
 export default class StartScene extends Phaser.Scene {
-  private musicToggleButton!: Phaser.GameObjects.Text
-  private sfxToggleButton!: Phaser.GameObjects.Text
   private currentStep: StartScreenStep = 'instructions'
   private stepObjects: Phaser.GameObjects.GameObject[] = []
   private characterCycleTimers: Phaser.Time.TimerEvent[] = []
   private walkingEnemy?: WalkingSprite
 
   constructor() {
-    super({ key: 'StartScene' })
+    super({ key: ThousandDaysScenes.Start })
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#1a1a2e')
-    playBgm(this, AudioKeys.StartBgm, 0.8)
-
-    this.musicToggleButton = this.add.text(784, 12, '', TOGGLE_BUTTON_STYLE)
-      .setOrigin(1, 0)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => {
-        setBgmEnabled(!isBgmOn())
-        this.updateMusicToggleButton()
-      })
-    this.updateMusicToggleButton()
-
-    this.sfxToggleButton = this.add.text(784, 40, '', TOGGLE_BUTTON_STYLE)
-      .setOrigin(1, 0)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => {
-        setSfxEnabled(!isSfxOn())
-        this.updateSfxToggleButton()
-      })
-    this.updateSfxToggleButton()
+    playBgm(this, AudioKeys.StartBgm, START_BGM_VOLUME)
+    createAudioToggleButtons(this)
 
     this.input.keyboard!.on('keydown-ENTER', () => this.handleAdvance())
     this.input.keyboard!.on('keydown-SPACE', () => this.handleAdvance())
@@ -253,6 +229,14 @@ export default class StartScene extends Phaser.Scene {
         .on('pointerdown', () => this.showCharacterSelectStep()),
     )
 
+    this.addStepObject(
+      this.add
+        .text(16, 588, '← 게임 허브', TOGGLE_BUTTON_STYLE)
+        .setOrigin(0, 1)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => this.scene.start(CoreScenes.MainMenu)),
+    )
+
     this.spawnWalkingEnemy()
   }
 
@@ -354,14 +338,6 @@ export default class StartScene extends Phaser.Scene {
     )
   }
 
-  private updateMusicToggleButton() {
-    this.musicToggleButton.setText(`🎵 음악: ${isBgmOn() ? 'ON' : 'OFF'}`)
-  }
-
-  private updateSfxToggleButton() {
-    this.sfxToggleButton.setText(`🔊 효과음: ${isSfxOn() ? 'ON' : 'OFF'}`)
-  }
-
   private selectCharacter(border: Phaser.GameObjects.Rectangle) {
     this.tweens.add({
       targets: border,
@@ -373,7 +349,7 @@ export default class StartScene extends Phaser.Scene {
   }
 
   private startGame() {
-    this.scene.start('GameScene', {
+    this.scene.start(ThousandDaysScenes.Game, {
       stageIndex: 0,
       score: 0,
       playerHealth: getDifficultySettings().playerLives,

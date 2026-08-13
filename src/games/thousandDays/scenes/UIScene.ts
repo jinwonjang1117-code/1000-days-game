@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { ThousandDaysScenes } from '../sceneKeys'
 import GameScene from './GameScene'
 import { stages } from '../config/stages'
 import { TextureKeys } from '../config/textureKeys'
@@ -66,11 +67,11 @@ export default class UIScene extends Phaser.Scene {
   private overlaySubtitleText!: Phaser.GameObjects.Text
 
   constructor() {
-    super({ key: 'UIScene' })
+    super({ key: ThousandDaysScenes.UI })
   }
 
   create() {
-    this.gameScene = this.scene.get('GameScene') as GameScene
+    this.gameScene = this.scene.get(ThousandDaysScenes.Game) as GameScene
 
     this.scoreText = this.add.text(HUD_SIDE_PADDING, 12, '', HUD_TEXT_STYLE)
     this.add.image(720 - HUD_SIDE_PADDING, 45 + 10, TextureKeys.Gem)

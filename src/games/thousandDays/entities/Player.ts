@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { WORLD_GRAVITY_Y } from '../config/physics'
 import { AudioKeys } from '../config/audioKeys'
-import { playSfx, startLoopingSfx, stopLoopingSfx } from '../config/audio'
+import { playSfx, startLoopingSfx, stopLoopingSfx } from '../../../config/audio'
 import type { CharacterSpriteSet } from '../config/characters'
 
 export const PlayerState = {
