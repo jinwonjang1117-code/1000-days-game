@@ -2,8 +2,10 @@ import Phaser from 'phaser'
 import { CoreScenes } from '../config/sceneKeys'
 import { GAMES } from '../config/games'
 import type { GameDefinition } from '../config/games'
-import { stopBgm } from '../config/audio'
+import { playBgm } from '../config/audio'
 import { createAudioToggleButtons } from '../ui/audioToggles'
+
+const HOME_BGM_KEY = 'bgm-home'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -49,19 +51,21 @@ export default class MainMenuScene extends Phaser.Scene {
     super({ key: CoreScenes.MainMenu })
   }
 
-  // Only the hub's own card thumbnails — deliberately tiny. Each game's real
-  // assets (and its BGM) load later, once that game is actually picked.
+  // Only the hub's own card thumbnails and BGM — deliberately tiny. Each
+  // game's real assets (and its own BGM) load later, once that game is
+  // actually picked.
   preload() {
     GAMES.forEach((game) => {
       this.load.image(game.thumbnail.key, game.thumbnail.path)
     })
+    this.load.audio(HOME_BGM_KEY, 'assets/bgm-home.mp3')
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#1a1a2e')
-    // The hub is always silent, including when returning here mid-game — each
-    // game owns its own BGM and starts it after it has been picked.
-    stopBgm()
+    // Returning here mid-game switches straight back to the hub's own BGM —
+    // playBgm() takes care of stopping whatever game BGM was playing.
+    playBgm(this, HOME_BGM_KEY)
     createAudioToggleButtons(this)
 
     this.add.text(400, 90, '진원이와 지희의 게임 허브', TITLE_STYLE).setOrigin(0.5)

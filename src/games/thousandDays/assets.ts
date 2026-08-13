@@ -3,35 +3,37 @@ import { TextureKeys, stageBackgroundKey } from './config/textureKeys'
 import { AudioKeys } from './config/audioKeys'
 import { stages } from './config/stages'
 
-// Real sprites go in public/assets/ under these exact filenames — drop them in
-// and reload, no code changes needed. Loaded as runtime string paths (not JS
-// imports) so a missing file just falls back to Phaser's placeholder texture
-// instead of breaking the dev server / build.
+// Real sprites go in public/assets/thousand-days/ under these exact filenames
+// — drop them in and reload, no code changes needed. This game's assets live
+// in their own subfolder so a future game's similarly-named files (player.png,
+// bgm-start.mp3, etc.) can't collide with these on disk. Loaded as runtime
+// string paths (not JS imports) so a missing file just falls back to Phaser's
+// placeholder texture instead of breaking the dev server / build.
 const ENEMY_SPRITE_PATHS = {
-  normal: 'assets/enemy-normal.png',
-  flying: 'assets/enemy-flying.png',
-  ghost: 'assets/enemy-ghost.png',
-  projectile: 'assets/enemy-projectile.png',
+  normal: 'assets/thousand-days/enemy-normal.png',
+  flying: 'assets/thousand-days/enemy-flying.png',
+  ghost: 'assets/thousand-days/enemy-ghost.png',
+  projectile: 'assets/thousand-days/enemy-projectile.png',
 }
 
 const PLAYER_SPRITE_PATHS = {
-  normal: 'assets/player_normal.png',
-  inhaling: 'assets/player_inhaling.png',
-  full: 'assets/player_full.png',
+  normal: 'assets/thousand-days/player_normal.png',
+  inhaling: 'assets/thousand-days/player_inhaling.png',
+  full: 'assets/thousand-days/player_full.png',
 }
 
 const PLAYER2_SPRITE_PATHS = {
-  normal: 'assets/player2_normal.png',
-  inhaling: 'assets/player2_inhaling.png',
-  full: 'assets/player2_full.png',
+  normal: 'assets/thousand-days/player2_normal.png',
+  inhaling: 'assets/thousand-days/player2_inhaling.png',
+  full: 'assets/thousand-days/player2_full.png',
 }
 
-const PROJECTILE_SPRITE_PATH = 'assets/projectile.png'
-const PROJECTILE2_SPRITE_PATH = 'assets/projectile2.png'
+const PROJECTILE_SPRITE_PATH = 'assets/thousand-days/projectile.png'
+const PROJECTILE2_SPRITE_PATH = 'assets/thousand-days/projectile2.png'
 
 const BOSS_SPRITE_PATHS = {
-  boss: 'assets/boss.png',
-  projectile: 'assets/boss-projectile.png',
+  boss: 'assets/thousand-days/boss.png',
+  projectile: 'assets/thousand-days/boss-projectile.png',
 }
 
 export const THOUSAND_DAYS_PLAYER_THUMBNAIL = PLAYER_SPRITE_PATHS.normal
@@ -61,32 +63,32 @@ export function loadThousandDaysAssets(scene: Phaser.Scene) {
   scene.load.image(TextureKeys.Boss, BOSS_SPRITE_PATHS.boss)
   scene.load.image(TextureKeys.BossProjectile, BOSS_SPRITE_PATHS.projectile)
 
-  scene.load.image(TextureKeys.Gem, 'assets/gem.png')
-  scene.load.image(TextureKeys.Life, 'assets/life.png')
-  scene.load.image(TextureKeys.Diamond, 'assets/diamond.png')
+  scene.load.image(TextureKeys.Gem, 'assets/thousand-days/gem.png')
+  scene.load.image(TextureKeys.Life, 'assets/thousand-days/life.png')
+  scene.load.image(TextureKeys.Diamond, 'assets/thousand-days/diamond.png')
 
   stages.forEach((stage) => {
-    scene.load.image(stageBackgroundKey(stage.level), `assets/stage${stage.level}.jpeg`)
+    scene.load.image(stageBackgroundKey(stage.level), `assets/thousand-days/stage${stage.level}.jpeg`)
   })
 
   // BGM stays MP3 (loop timing doesn't need sample-accurate start). SFX are
   // WAV — MP3's encoder/decoder priming silence adds an audible delay to
   // short one-shot sounds that WAV's uncompressed PCM doesn't have.
-  scene.load.audio(AudioKeys.StartBgm, 'assets/bgm-start.mp3')
-  scene.load.audio(AudioKeys.GameplayBgm, 'assets/bgm-gameplay.mp3')
-  scene.load.audio(AudioKeys.BossBgm, 'assets/bgm-boss.mp3')
-  scene.load.audio(AudioKeys.FlyerProjectile, 'assets/sfx-flyer-projectile.wav')
-  scene.load.audio(AudioKeys.BossProjectile, 'assets/sfx-boss-projectile.wav')
-  scene.load.audio(AudioKeys.BossRain, 'assets/sfx-boss-rain.wav')
-  scene.load.audio(AudioKeys.PickupConsume, 'assets/sfx-pickup.wav')
-  scene.load.audio(AudioKeys.PlayerInhale, 'assets/sfx-player-inhale.wav')
-  scene.load.audio(AudioKeys.PlayerSwallow, 'assets/sfx-player-swallow.wav')
-  scene.load.audio(AudioKeys.PlayerSpit, 'assets/sfx-player-spit.wav')
-  scene.load.audio(AudioKeys.PlayerHit, 'assets/sfx-player-hit.wav')
-  scene.load.audio(AudioKeys.EnemyHit, 'assets/sfx-enemy-hit.wav')
-  scene.load.audio(AudioKeys.StageClear, 'assets/sfx-stage-clear.wav')
-  scene.load.audio(AudioKeys.Victory, 'assets/sfx-victory.wav')
-  scene.load.audio(AudioKeys.Lose, 'assets/sfx-lose.wav')
+  scene.load.audio(AudioKeys.StartBgm, 'assets/thousand-days/bgm-start.mp3')
+  scene.load.audio(AudioKeys.GameplayBgm, 'assets/thousand-days/bgm-gameplay.mp3')
+  scene.load.audio(AudioKeys.BossBgm, 'assets/thousand-days/bgm-boss.mp3')
+  scene.load.audio(AudioKeys.FlyerProjectile, 'assets/thousand-days/sfx-flyer-projectile.wav')
+  scene.load.audio(AudioKeys.BossProjectile, 'assets/thousand-days/sfx-boss-projectile.wav')
+  scene.load.audio(AudioKeys.BossRain, 'assets/thousand-days/sfx-boss-rain.wav')
+  scene.load.audio(AudioKeys.PickupConsume, 'assets/thousand-days/sfx-pickup.wav')
+  scene.load.audio(AudioKeys.PlayerInhale, 'assets/thousand-days/sfx-player-inhale.wav')
+  scene.load.audio(AudioKeys.PlayerSwallow, 'assets/thousand-days/sfx-player-swallow.wav')
+  scene.load.audio(AudioKeys.PlayerSpit, 'assets/thousand-days/sfx-player-spit.wav')
+  scene.load.audio(AudioKeys.PlayerHit, 'assets/thousand-days/sfx-player-hit.wav')
+  scene.load.audio(AudioKeys.EnemyHit, 'assets/thousand-days/sfx-enemy-hit.wav')
+  scene.load.audio(AudioKeys.StageClear, 'assets/thousand-days/sfx-stage-clear.wav')
+  scene.load.audio(AudioKeys.Victory, 'assets/thousand-days/sfx-victory.wav')
+  scene.load.audio(AudioKeys.Lose, 'assets/thousand-days/sfx-lose.wav')
 
   const graphics = scene.add.graphics({ x: 0, y: 0 })
 
