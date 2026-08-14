@@ -12,11 +12,14 @@ import type {
   StateMessage,
   ProjectileState,
   EnemyState,
+  Vec2,
 } from '../net/syncProtocol'
 import { isInputMessage, isPauseToggleMessage, isStateMessage } from '../net/syncProtocol'
 import Player from '../entities/Player'
 import Projectile from '../entities/Projectile'
 import Enemy from '../entities/Enemy'
+import type { EnemyArchetype } from '../gameplay/enemyArchetypes'
+import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import type { Direction, RoomCoord, RoomDefinition } from '../rooms/floorLayout'
 import {
   START_COORD,
@@ -85,6 +88,10 @@ const ENTRY_MARGIN = 90
 const PLAYER_ENTRY_OFFSET = 30
 const ENEMY_SPAWN_CENTER = { x: 400, y: 200 }
 const ENEMY_SPAWN_SPACING = 60
+const ENEMY_PROJECTILE_COLOR = 0xff3366
+const ENEMY_PROJECTILE_SPEED = 240
+/** Splitter's children spread out a little instead of stacking exactly on the death spot. */
+const SPLIT_SPAWN_OFFSET = 20
 
 interface DoorZone {
   x: number
@@ -185,6 +192,10 @@ export default class DevTestScene extends Phaser.Scene {
   private projectileColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
   private nextProjectileId = 0
 
+  private enemyProjectiles: Map<number, Projectile> = new Map()
+  private enemyProjectileColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
+  private nextEnemyProjectileId = 0
+
   private isGameOver = false
   private isPaused = false
   /** Host-side: whether the joiner's fire key is currently held, per its last InputMessage. */
@@ -216,6 +227,11 @@ export default class DevTestScene extends Phaser.Scene {
     this.projectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
     this.projectileColliders.clear()
     this.nextProjectileId = 0
+    this.enemyProjectiles.forEach((projectile) => projectile.destroy())
+    this.enemyProjectiles.clear()
+    this.enemyProjectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.enemyProjectileColliders.clear()
+    this.nextEnemyProjectileId = 0
     this.joinerFireHeld = false
     this.lastSentFire = false
     this.isPaused = false
@@ -269,6 +285,10 @@ export default class DevTestScene extends Phaser.Scene {
       this.projectiles.clear()
       this.projectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
       this.projectileColliders.clear()
+      this.enemyProjectiles.forEach((projectile) => projectile.destroy())
+      this.enemyProjectiles.clear()
+      this.enemyProjectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+      this.enemyProjectileColliders.clear()
       this.roomEnemyColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
       this.roomEnemyColliders.clear()
       this.roomEnemies.forEach((enemy) => enemy.destroy())
@@ -334,6 +354,7 @@ export default class DevTestScene extends Phaser.Scene {
       this.joinerPlayer?.interpolate(t)
       this.roomEnemies.forEach((enemy) => enemy.interpolate(t))
       this.projectiles.forEach((projectile) => projectile.interpolate(t))
+      this.enemyProjectiles.forEach((projectile) => projectile.interpolate(t))
     }
 
     const currentKeys: KeyState = {
@@ -367,7 +388,16 @@ export default class DevTestScene extends Phaser.Scene {
     const now = this.time.now
     this.hostPlayer?.refreshVisuals(now)
     this.joinerPlayer?.refreshVisuals(now)
-    this.roomEnemies.forEach((enemy) => enemy.refreshVisuals())
+
+    this.roomEnemies.forEach((enemy) => {
+      const nearest = this.getNearestPlayerPos(enemy.x, enemy.y)
+      enemy.updateMovement(nearest)
+      const fireAngle = enemy.tryFireAt(nearest, now)
+      if (fireAngle !== null) {
+        this.spawnEnemyProjectile(enemy.x, enemy.y, fireAngle)
+      }
+      enemy.refreshVisuals()
+    })
 
     this.tryFirePlayer(this.hostPlayer, this.cursorKeys.space.isDown, now)
     this.tryFirePlayer(this.joinerPlayer, this.joinerFireHeld, now)
@@ -377,6 +407,11 @@ export default class DevTestScene extends Phaser.Scene {
         this.destroyProjectile(id)
       }
     })
+    this.enemyProjectiles.forEach((projectile, id) => {
+      if (projectile.hasExpired()) {
+        this.destroyEnemyProjectile(id)
+      }
+    })
 
     this.updateDoorVisuals()
     this.checkRoomTransition()
@@ -384,6 +419,26 @@ export default class DevTestScene extends Phaser.Scene {
     if (this.isGameOver) {
       this.showGameOver()
     }
+  }
+
+  /** Host-only: nearest of whichever players exist and aren't out-of-lives — dead players aren't valid targets. */
+  private getNearestPlayerPos(x: number, y: number): Vec2 | null {
+    const candidates = [this.hostPlayer, this.joinerPlayer].filter(
+      (player): player is Player => !!player && !player.isOut,
+    )
+    if (candidates.length === 0) {
+      return null
+    }
+    let nearest = candidates[0]
+    let nearestDist = Phaser.Math.Distance.Between(x, y, nearest.x, nearest.y)
+    for (const player of candidates.slice(1)) {
+      const dist = Phaser.Math.Distance.Between(x, y, player.x, player.y)
+      if (dist < nearestDist) {
+        nearest = player
+        nearestDist = dist
+      }
+    }
+    return { x: nearest.x, y: nearest.y }
   }
 
   /** Host-only: fires toward whichever direction the player is currently facing, if its cooldown allows. */
@@ -528,6 +583,10 @@ export default class DevTestScene extends Phaser.Scene {
     this.projectiles.clear()
     this.projectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
     this.projectileColliders.clear()
+    this.enemyProjectiles.forEach((projectile) => projectile.destroy())
+    this.enemyProjectiles.clear()
+    this.enemyProjectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.enemyProjectileColliders.clear()
 
     if (enteredFrom) {
       const [posA, posB] = getEntryPositions(enteredFrom)
@@ -543,25 +602,36 @@ export default class DevTestScene extends Phaser.Scene {
     this.updateDoorVisuals()
   }
 
-  /** Host-only: registers overlap against whichever of hostPlayer/joinerPlayer exist (solo has only one). */
+  /** Host-only: one room-clear spawn wave, grouped by archetype. */
   private spawnRoomEnemies(room: RoomDefinition) {
-    for (let i = 0; i < room.enemyCount; i++) {
-      const x = ENEMY_SPAWN_CENTER.x + (i - (room.enemyCount - 1) / 2) * ENEMY_SPAWN_SPACING
-      const id = this.nextEnemyId++
-      const enemy = new Enemy(this, id, x, ENEMY_SPAWN_CENTER.y, { simulated: true })
-      this.roomEnemies.set(id, enemy)
-
-      const colliders: Phaser.Physics.Arcade.Collider[] = []
-      const hostPlayer = this.hostPlayer
-      if (hostPlayer) {
-        colliders.push(this.physics.add.overlap(hostPlayer.square, enemy.square, () => this.handleHit(hostPlayer)))
+    let index = 0
+    const total = room.enemies.reduce((sum, group) => sum + group.count, 0)
+    for (const group of room.enemies) {
+      const archetype = ARCHETYPES[group.archetype]
+      for (let i = 0; i < group.count; i++) {
+        const x = ENEMY_SPAWN_CENTER.x + (index - (total - 1) / 2) * ENEMY_SPAWN_SPACING
+        this.spawnEnemy(archetype, x, ENEMY_SPAWN_CENTER.y)
+        index++
       }
-      const joinerPlayer = this.joinerPlayer
-      if (joinerPlayer) {
-        colliders.push(this.physics.add.overlap(joinerPlayer.square, enemy.square, () => this.handleHit(joinerPlayer)))
-      }
-      this.roomEnemyColliders.set(id, colliders)
     }
+  }
+
+  /** Host-only: registers overlap against whichever of hostPlayer/joinerPlayer exist (solo has only one). Also used by the split-on-death path. */
+  private spawnEnemy(archetype: EnemyArchetype, x: number, y: number) {
+    const id = this.nextEnemyId++
+    const enemy = new Enemy(this, id, archetype, x, y, { simulated: true })
+    this.roomEnemies.set(id, enemy)
+
+    const colliders: Phaser.Physics.Arcade.Collider[] = []
+    const hostPlayer = this.hostPlayer
+    if (hostPlayer) {
+      colliders.push(this.physics.add.overlap(hostPlayer.square, enemy.square, () => this.handleHit(hostPlayer)))
+    }
+    const joinerPlayer = this.joinerPlayer
+    if (joinerPlayer) {
+      colliders.push(this.physics.add.overlap(joinerPlayer.square, enemy.square, () => this.handleHit(joinerPlayer)))
+    }
+    this.roomEnemyColliders.set(id, colliders)
   }
 
   // ---- Projectiles ----
@@ -590,7 +660,7 @@ export default class DevTestScene extends Phaser.Scene {
     this.projectileColliders.delete(id)
   }
 
-  /** Host-only: applies damage; if lethal, removes the enemy from the room's list for good. */
+  /** Host-only: applies damage; if lethal, removes the enemy from the room's list for good (and spawns split children, if any). */
   private handleProjectileHitEnemy(projectileId: number, enemyId: number) {
     this.destroyProjectile(projectileId)
 
@@ -600,11 +670,70 @@ export default class DevTestScene extends Phaser.Scene {
     }
     const died = enemy.applyHit()
     if (died) {
+      const { splitsOnDeath, splitCount } = enemy.archetype
+      const deathX = enemy.x
+      const deathY = enemy.y
+
       this.roomEnemyColliders.get(enemyId)?.forEach((collider) => collider.destroy())
       this.roomEnemyColliders.delete(enemyId)
       enemy.destroy()
       this.roomEnemies.delete(enemyId)
+
+      if (splitsOnDeath && splitCount) {
+        const childArchetype = ARCHETYPES[splitsOnDeath]
+        for (let i = 0; i < splitCount; i++) {
+          const angle = (i / splitCount) * Math.PI * 2
+          this.spawnEnemy(
+            childArchetype,
+            deathX + Math.cos(angle) * SPLIT_SPAWN_OFFSET,
+            deathY + Math.sin(angle) * SPLIT_SPAWN_OFFSET,
+          )
+        }
+      }
     }
+  }
+
+  /** Host-only: spawns an enemy shot and wires overlap detection against whichever players currently exist. */
+  private spawnEnemyProjectile(x: number, y: number, angle: number) {
+    const id = this.nextEnemyProjectileId++
+    const projectile = new Projectile(this, id, x, y, angle, {
+      simulated: true,
+      color: ENEMY_PROJECTILE_COLOR,
+      speed: ENEMY_PROJECTILE_SPEED,
+    })
+    this.enemyProjectiles.set(id, projectile)
+
+    const colliders: Phaser.Physics.Arcade.Collider[] = []
+    const hostPlayer = this.hostPlayer
+    if (hostPlayer) {
+      colliders.push(
+        this.physics.add.overlap(projectile.shape, hostPlayer.square, () =>
+          this.handleEnemyProjectileHitPlayer(id, hostPlayer),
+        ),
+      )
+    }
+    const joinerPlayer = this.joinerPlayer
+    if (joinerPlayer) {
+      colliders.push(
+        this.physics.add.overlap(projectile.shape, joinerPlayer.square, () =>
+          this.handleEnemyProjectileHitPlayer(id, joinerPlayer),
+        ),
+      )
+    }
+    this.enemyProjectileColliders.set(id, colliders)
+  }
+
+  private destroyEnemyProjectile(id: number) {
+    this.enemyProjectiles.get(id)?.destroy()
+    this.enemyProjectiles.delete(id)
+    this.enemyProjectileColliders.get(id)?.forEach((collider) => collider.destroy())
+    this.enemyProjectileColliders.delete(id)
+  }
+
+  /** Host-only: an enemy shot connecting is the same hit as contact damage, just via a projectile instead of overlap-with-the-enemy-itself. */
+  private handleEnemyProjectileHitPlayer(projectileId: number, player: Player) {
+    this.destroyEnemyProjectile(projectileId)
+    this.handleHit(player)
   }
 
   /** Host-only: applies a hit and checks for a simultaneous both-out game over (solo: hostPlayer alone). */
@@ -665,6 +794,10 @@ export default class DevTestScene extends Phaser.Scene {
             id,
             pos: { x: projectile.x, y: projectile.y },
           })),
+          enemyProjectiles: Array.from(this.enemyProjectiles.entries()).map(([id, projectile]) => ({
+            id,
+            pos: { x: projectile.x, y: projectile.y },
+          })),
           isGameOver: this.isGameOver,
           isPaused: this.isPaused,
         }
@@ -701,6 +834,7 @@ export default class DevTestScene extends Phaser.Scene {
 
       this.reconcileRoomEnemies(data.enemies)
       this.reconcileProjectiles(data.projectiles)
+      this.reconcileEnemyProjectiles(data.enemyProjectiles)
       this.updateDoorVisuals()
 
       if (data.isGameOver) {
@@ -731,7 +865,7 @@ export default class DevTestScene extends Phaser.Scene {
     for (const state of received) {
       let enemy = this.roomEnemies.get(state.id)
       if (!enemy) {
-        enemy = new Enemy(this, state.id, state.pos.x, state.pos.y, { simulated: false })
+        enemy = new Enemy(this, state.id, ARCHETYPES[state.archetype], state.pos.x, state.pos.y, { simulated: false })
         this.roomEnemies.set(state.id, enemy)
       }
       enemy.applyReceivedState(state)
@@ -754,6 +888,30 @@ export default class DevTestScene extends Phaser.Scene {
       if (!projectile) {
         projectile = new Projectile(this, state.id, state.pos.x, state.pos.y, 0, { simulated: false })
         this.projectiles.set(state.id, projectile)
+      }
+      projectile.applyReceivedPos(state.pos)
+    }
+  }
+
+  /** Joiner-only: same reconciliation as reconcileProjectiles, mirrored for enemy-fired shots. */
+  private reconcileEnemyProjectiles(received: ProjectileState[]) {
+    const receivedIds = new Set(received.map((projectile) => projectile.id))
+
+    for (const [id, projectile] of this.enemyProjectiles) {
+      if (!receivedIds.has(id)) {
+        projectile.destroy()
+        this.enemyProjectiles.delete(id)
+      }
+    }
+
+    for (const state of received) {
+      let projectile = this.enemyProjectiles.get(state.id)
+      if (!projectile) {
+        projectile = new Projectile(this, state.id, state.pos.x, state.pos.y, 0, {
+          simulated: false,
+          color: ENEMY_PROJECTILE_COLOR,
+        })
+        this.enemyProjectiles.set(state.id, projectile)
       }
       projectile.applyReceivedPos(state.pos)
     }

@@ -3,6 +3,8 @@
 // part of establishing the connection rather than gameplay itself.
 
 import type { RoomCoord } from '../rooms/floorLayout'
+import type { ArchetypeId } from '../gameplay/enemyArchetypes'
+import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 
 export interface KeyState {
   up: boolean
@@ -42,6 +44,8 @@ export interface ProjectileState {
 /** One active enemy's authoritative state — a room can now hold more than one at a time. */
 export interface EnemyState {
   id: number
+  /** Which archetype (gameplay/enemyArchetypes.ts) to render this as — always sent, not inferred. */
+  archetype: ArchetypeId
   pos: Vec2
   health: number
 }
@@ -70,8 +74,16 @@ export interface StateMessage {
   roomCoord: RoomCoord
   /** The current room's live enemies — spawned/destroyed as the room is fought through and left. */
   enemies: EnemyState[]
-  /** Spawned/destroyed continuously, cleared entirely on a room transition. */
+  /** Player-fired shots. Spawned/destroyed continuously, cleared entirely on a room transition. */
   projectiles: ProjectileState[]
+  /**
+   * Enemy-fired shots (Ranged shooter). Kept as its own field rather than
+   * folded into `projectiles` with an owner tag — mirrors how
+   * enemies/projectiles/pause/gameOver are already each their own
+   * top-level concern, and keeps "which side does this hit" unambiguous
+   * by construction instead of a runtime check.
+   */
+  enemyProjectiles: ProjectileState[]
   isGameOver: boolean
   isPaused: boolean
 }
@@ -123,7 +135,13 @@ function isEnemyState(value: unknown): value is EnemyState {
     return false
   }
   const v = value as Record<string, unknown>
-  return typeof v.id === 'number' && isVec2(v.pos) && typeof v.health === 'number'
+  return (
+    typeof v.id === 'number' &&
+    typeof v.archetype === 'string' &&
+    v.archetype in ARCHETYPES &&
+    isVec2(v.pos) &&
+    typeof v.health === 'number'
+  )
 }
 
 function isRoomCoord(value: unknown): value is RoomCoord {
@@ -160,6 +178,8 @@ export function isStateMessage(data: unknown): data is StateMessage {
     v.enemies.every(isEnemyState) &&
     Array.isArray(v.projectiles) &&
     v.projectiles.every(isProjectileState) &&
+    Array.isArray(v.enemyProjectiles) &&
+    v.enemyProjectiles.every(isProjectileState) &&
     typeof v.isGameOver === 'boolean' &&
     typeof v.isPaused === 'boolean'
   )

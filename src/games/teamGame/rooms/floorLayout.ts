@@ -6,6 +6,8 @@
 // need to change when that happens, since the shape (a list of rooms with
 // coords) stays the same.
 
+import type { ArchetypeId } from '../gameplay/enemyArchetypes'
+
 export type Direction = 'north' | 'south' | 'east' | 'west'
 
 export interface RoomCoord {
@@ -13,18 +15,27 @@ export interface RoomCoord {
   y: number
 }
 
-export interface RoomDefinition {
-  coord: RoomCoord
-  enemyCount: number
+export interface RoomEnemyGroup {
+  archetype: ArchetypeId
+  count: number
 }
 
-// A 2x2 loop — small, but exercises all 4 door directions and a room with
-// two doors, unlike a straight line of rooms would.
+export interface RoomDefinition {
+  coord: RoomCoord
+  enemies: RoomEnemyGroup[]
+}
+
+// A straight line, one room per archetype (plus an empty start room) — the
+// simplest layout for testing each archetype in isolation. The old 2x2
+// loop only existed to exercise all 4 door directions during step 1; that
+// shape wasn't meaningful on its own.
 export const TEST_FLOOR: RoomDefinition[] = [
-  { coord: { x: 0, y: 0 }, enemyCount: 1 }, // start room
-  { coord: { x: 1, y: 0 }, enemyCount: 2 },
-  { coord: { x: 1, y: 1 }, enemyCount: 2 },
-  { coord: { x: 0, y: 1 }, enemyCount: 2 },
+  { coord: { x: 0, y: 0 }, enemies: [] },
+  { coord: { x: 1, y: 0 }, enemies: [{ archetype: 'swarmer', count: 5 }] },
+  { coord: { x: 2, y: 0 }, enemies: [{ archetype: 'tank', count: 1 }] },
+  { coord: { x: 3, y: 0 }, enemies: [{ archetype: 'chaser', count: 2 }] },
+  { coord: { x: 4, y: 0 }, enemies: [{ archetype: 'rangedShooter', count: 2 }] },
+  { coord: { x: 5, y: 0 }, enemies: [{ archetype: 'splitter', count: 2 }] },
 ]
 
 export const START_COORD: RoomCoord = { x: 0, y: 0 }

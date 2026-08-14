@@ -1,13 +1,12 @@
 import Phaser from 'phaser'
 import type { EnemyState, Vec2 } from '../net/syncProtocol'
+import type { EnemyArchetype } from '../gameplay/enemyArchetypes'
+import type { AttackState } from '../gameplay/attack'
+import { createAttackState, canFire, recordFire } from '../gameplay/attack'
 
-const ENEMY_SIZE = 28
-const ENEMY_COLOR = 0x999999
 const ENEMY_HIT_FLASH_COLOR = 0xffffff
 const ENEMY_HIT_FLASH_MS = 80
-const ENEMY_SPEED = 160
-const ENEMY_MAX_HEALTH = 3
-const HEALTH_TEXT_OFFSET = 26
+const HEALTH_TEXT_OFFSET_BASE = 18
 
 const HEALTH_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -20,41 +19,53 @@ export interface EnemyOptions {
 }
 
 /**
- * A bouncing placeholder enemy used to test hit detection, health/death,
- * and (now) room-clear detection, ahead of Phase F+'s real enemy
- * archetypes. Same simulated/render-only split as Player/Projectile. A
- * room can hold several at once (see DevTestScene's roomEnemies), so each
- * instance carries an id the same way Projectile already does. Death is
- * reported, not acted on — the scene decides what happens next (removing
- * it from the room's enemy list; no more auto-respawn now that room-clear
- * exists to replace it).
+ * A real enemy archetype (DESIGN.md §9) — health/death, hit-flash, and
+ * networking are all archetype-agnostic and unchanged from the original
+ * placeholder; `archetype` only drives visuals/stats and movement/attack
+ * behavior. Same simulated/render-only split as Player/Projectile. A room
+ * can hold several at once, so each instance carries an id the same way
+ * Projectile already does. Death is reported, not acted on — the scene
+ * decides what happens next (removing it from the room's list, and, for
+ * Splitter, spawning its children).
  */
 export default class Enemy {
   readonly id: number
+  readonly archetype: EnemyArchetype
   readonly square: Phaser.GameObjects.Rectangle
   private readonly healthText: Phaser.GameObjects.Text
   private readonly body: Phaser.Physics.Arcade.Body | null
+  private readonly healthTextOffset: number
 
   // Simulated (host) only.
-  private health = ENEMY_MAX_HEALTH
+  private health: number
+  private attackState: AttackState = createAttackState()
 
   // Render-only (joiner) only.
   private target: Vec2 | null = null
 
-  constructor(scene: Phaser.Scene, id: number, x: number, y: number, options: EnemyOptions) {
+  constructor(scene: Phaser.Scene, id: number, archetype: EnemyArchetype, x: number, y: number, options: EnemyOptions) {
     this.id = id
-    this.square = scene.add.rectangle(x, y, ENEMY_SIZE, ENEMY_SIZE, ENEMY_COLOR)
+    this.archetype = archetype
+    this.health = archetype.maxHealth
+    this.healthTextOffset = archetype.size / 2 + HEALTH_TEXT_OFFSET_BASE
+
+    this.square = scene.add.rectangle(x, y, archetype.size, archetype.size, archetype.color)
     this.healthText = scene.add
-      .text(x, y - HEALTH_TEXT_OFFSET, `HP ${ENEMY_MAX_HEALTH}`, HEALTH_TEXT_STYLE)
+      .text(x, y - this.healthTextOffset, `HP ${archetype.maxHealth}`, HEALTH_TEXT_STYLE)
       .setOrigin(0.5)
 
     if (options.simulated) {
       scene.physics.add.existing(this.square)
       this.body = this.square.body as Phaser.Physics.Arcade.Body
       this.body.setCollideWorldBounds(true)
-      this.body.setBounce(1, 1)
-      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
-      this.body.setVelocity(Math.cos(angle) * ENEMY_SPEED, Math.sin(angle) * ENEMY_SPEED)
+
+      if (archetype.movement === 'bounce') {
+        this.body.setBounce(1, 1)
+        const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
+        this.body.setVelocity(Math.cos(angle) * archetype.speed, Math.sin(angle) * archetype.speed)
+      }
+      // 'chase'/'keepDistance' start stationary — updateMovement sets their
+      // velocity every frame once a target exists.
     } else {
       this.body = null
     }
@@ -70,6 +81,49 @@ export default class Enemy {
 
   // ---- Simulated (host) ----
 
+  /**
+   * Call every frame. No-ops for 'bounce' (Arcade physics owns its motion
+   * once launched) and while there's no valid target to chase/flee from.
+   */
+  updateMovement(nearestPlayerPos: Vec2 | null) {
+    if (!this.body || this.archetype.movement === 'bounce' || !nearestPlayerPos) {
+      return
+    }
+
+    if (this.archetype.movement === 'chase') {
+      const angle = Math.atan2(nearestPlayerPos.y - this.y, nearestPlayerPos.x - this.x)
+      this.body.setVelocity(Math.cos(angle) * this.archetype.speed, Math.sin(angle) * this.archetype.speed)
+      return
+    }
+
+    // 'keepDistance': back away once a player gets within half the firing
+    // range, otherwise hold position.
+    const retreatDistance = (this.archetype.ranged?.range ?? 200) / 2
+    const distance = Phaser.Math.Distance.Between(this.x, this.y, nearestPlayerPos.x, nearestPlayerPos.y)
+    if (distance < retreatDistance) {
+      const angle = Math.atan2(this.y - nearestPlayerPos.y, this.x - nearestPlayerPos.x)
+      this.body.setVelocity(Math.cos(angle) * this.archetype.speed, Math.sin(angle) * this.archetype.speed)
+    } else {
+      this.body.setVelocity(0, 0)
+    }
+  }
+
+  /** Ranged archetypes only. Returns a fire angle if in range and off cooldown, else null. */
+  tryFireAt(nearestPlayerPos: Vec2 | null, now: number): number | null {
+    if (!this.body || !this.archetype.ranged || !nearestPlayerPos) {
+      return null
+    }
+    const distance = Phaser.Math.Distance.Between(this.x, this.y, nearestPlayerPos.x, nearestPlayerPos.y)
+    if (distance > this.archetype.ranged.range) {
+      return null
+    }
+    if (!canFire(this.attackState, now, this.archetype.ranged.fireRateMs)) {
+      return null
+    }
+    this.attackState = recordFire(this.attackState, now)
+    return Math.atan2(nearestPlayerPos.y - this.y, nearestPlayerPos.x - this.x)
+  }
+
   /** Returns true if this hit brought health to 0. */
   applyHit(damage = 1): boolean {
     this.health = Math.max(0, this.health - damage)
@@ -79,7 +133,7 @@ export default class Enemy {
   }
 
   getNetworkState(): EnemyState {
-    return { id: this.id, pos: { x: this.square.x, y: this.square.y }, health: this.health }
+    return { id: this.id, archetype: this.archetype.id, pos: { x: this.square.x, y: this.square.y }, health: this.health }
   }
 
   /** Call every frame — keeps the label glued to the moving square. */
@@ -112,11 +166,11 @@ export default class Enemy {
 
   private flashHit() {
     this.square.setFillStyle(ENEMY_HIT_FLASH_COLOR)
-    this.square.scene.time.delayedCall(ENEMY_HIT_FLASH_MS, () => this.square.setFillStyle(ENEMY_COLOR))
+    this.square.scene.time.delayedCall(ENEMY_HIT_FLASH_MS, () => this.square.setFillStyle(this.archetype.color))
   }
 
   private syncHealthLabel() {
-    this.healthText.setPosition(this.square.x, this.square.y - HEALTH_TEXT_OFFSET)
+    this.healthText.setPosition(this.square.x, this.square.y - this.healthTextOffset)
     this.healthText.setText(`HP ${this.health}`)
   }
 

@@ -8,6 +8,10 @@ const PROJECTILE_MAX_RANGE = 500
 
 export interface ProjectileOptions {
   simulated: boolean
+  /** Defaults to the standard player-shot color — pass a different one (e.g. for enemy shots) to tell them apart at a glance. */
+  color?: number
+  /** Defaults to the standard player-shot speed — pass a different one (e.g. a slower speed for enemy shots) to tune dodgeability independently. */
+  speed?: number
 }
 
 /**
@@ -26,12 +30,13 @@ export default class Projectile {
   constructor(scene: Phaser.Scene, id: number, x: number, y: number, angle: number, options: ProjectileOptions) {
     this.id = id
     this.startPos = { x, y }
-    this.shape = scene.add.circle(x, y, PROJECTILE_RADIUS, PROJECTILE_COLOR)
+    this.shape = scene.add.circle(x, y, PROJECTILE_RADIUS, options.color ?? PROJECTILE_COLOR)
 
     if (options.simulated) {
       scene.physics.add.existing(this.shape)
       this.body = this.shape.body as Phaser.Physics.Arcade.Body
-      this.body.setVelocity(Math.cos(angle) * PROJECTILE_SPEED, Math.sin(angle) * PROJECTILE_SPEED)
+      const speed = options.speed ?? PROJECTILE_SPEED
+      this.body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed)
     } else {
       this.body = null
     }
