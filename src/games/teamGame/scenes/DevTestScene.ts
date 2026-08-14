@@ -198,6 +198,8 @@ export default class DevTestScene extends Phaser.Scene {
   private currentRoomCoord: RoomCoord = ORIGIN_COORD
   private doorGraphics: Partial<Record<Direction, Phaser.GameObjects.Rectangle>> = {}
   private bossHoleGraphic?: Phaser.GameObjects.Arc
+  /** Host/solo-only: rooms whose enemies have already been cleared once — loadRoom skips (re)spawning enemies for these. */
+  private clearedRooms: RoomCoord[] = []
 
   private currentLevel = 1
   /** Shared by host and joiner — drives hasNeighbor/door logic, boss-room lookup, and the minimap. Host populates it from `currentFloor`; joiner from the received LevelStartMessage. */
@@ -268,6 +270,7 @@ export default class DevTestScene extends Phaser.Scene {
     this.doorGraphics = {}
     this.bossHoleGraphic?.destroy()
     this.bossHoleGraphic = undefined
+    this.clearedRooms = []
     this.currentLevel = 1
     this.floorRoomEntries = []
     this.exploredRooms = []
@@ -569,6 +572,9 @@ export default class DevTestScene extends Phaser.Scene {
 
   private updateDoorVisuals() {
     const clear = this.roomEnemies.size === 0
+    if (clear && !this.clearedRooms.some((cleared) => coordsEqual(cleared, this.currentRoomCoord))) {
+      this.clearedRooms.push(this.currentRoomCoord)
+    }
 
     if (this.isCurrentRoomBoss()) {
       Object.values(this.doorGraphics).forEach((rect) => rect?.setVisible(false))
@@ -643,6 +649,7 @@ export default class DevTestScene extends Phaser.Scene {
     this.currentFloor = generateFloor(level)
     this.floorRoomEntries = this.currentFloor.rooms.map((room) => ({ coord: room.coord, isBoss: !!room.isBoss }))
     this.exploredRooms = [this.currentFloor.startCoord]
+    this.clearedRooms = []
 
     this.hostPlayer?.teleport(HOST_START.x, HOST_START.y)
     this.joinerPlayer?.teleport(JOINER_START.x, JOINER_START.y)
@@ -698,7 +705,8 @@ export default class DevTestScene extends Phaser.Scene {
     this.miniMap?.refresh(this.exploredRooms, coord)
 
     const room = getRoomDefinition(this.currentFloor?.rooms ?? [], coord)
-    if (room) {
+    const alreadyCleared = this.clearedRooms.some((cleared) => coordsEqual(cleared, coord))
+    if (room && !alreadyCleared) {
       this.spawnRoomEnemies(room)
     }
     this.updateDoorVisuals()
