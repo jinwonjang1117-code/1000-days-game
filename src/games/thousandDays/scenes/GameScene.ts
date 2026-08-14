@@ -245,6 +245,10 @@ export default class GameScene extends Phaser.Scene {
       this.updateEnemyCapture(this.capturingEnemy)
     }
 
+    if (!this.isBossLevel && enemies.length === 1 && enemies[0] instanceof GhostEnemy) {
+      enemies[0].enrage()
+    }
+
     this.boss?.updateBehavior(time, delta)
 
     const enemyProjectiles = this.enemyProjectileGroup.getChildren() as EnemyProjectile[]
@@ -318,7 +322,13 @@ export default class GameScene extends Phaser.Scene {
           break
         }
         case 'ghost':
-          enemy = new GhostEnemy(this, config.x, config.y)
+          enemy = new GhostEnemy(
+            this,
+            config.x,
+            config.y,
+            () => ({ x: this.player.x, y: this.player.y }),
+            (x, y, targetX, targetY) => this.fireEnemyProjectile(x, y, targetX, targetY),
+          )
           break
         case 'flyer': {
           const bounds = {
