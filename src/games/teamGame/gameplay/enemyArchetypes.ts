@@ -5,7 +5,7 @@
 // values here are first-pass calls made to give each archetype a distinct
 // feel on nothing but the default attack; tune freely once roles land.
 
-export type ArchetypeId = 'swarmer' | 'tank' | 'chaser' | 'rangedShooter' | 'splitter'
+export type ArchetypeId = 'swarmer' | 'tank' | 'chaser' | 'rangedShooter' | 'splitter' | 'boss'
 
 export interface EnemyArchetype {
   id: ArchetypeId
@@ -79,5 +79,18 @@ export const ARCHETYPES: Record<ArchetypeId, EnemyArchetype> = {
     movement: 'chase',
     splitsOnDeath: 'swarmer',
     splitCount: 2,
+  },
+  // Boss-room placeholder — a plain melee chaser, just much bigger and
+  // tougher than anything else, so a room clearly reads as "the big one."
+  // No ranged/split, no per-level scaling yet — a real boss (phases,
+  // attacks) is explicitly deferred; this only exists to give "clear the
+  // boss room" something real to fight until then.
+  boss: {
+    id: 'boss',
+    maxHealth: 30,
+    speed: 70,
+    size: 64,
+    color: 0xdd2222,
+    movement: 'chase',
   },
 }

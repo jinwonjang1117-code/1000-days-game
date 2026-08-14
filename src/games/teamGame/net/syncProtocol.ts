@@ -30,6 +30,21 @@ export interface PauseToggleMessage {
   type: 'pauseToggle'
 }
 
+/**
+ * Host -> joiner: sent once whenever a level (re)starts, not per-tick —
+ * mirrors PauseToggleMessage's discrete, send-on-event shape rather than
+ * StateMessage's fixed-rate broadcast. The room list only carries what the
+ * joiner needs to render doors/the minimap (coord + isBoss); enemy
+ * composition never needs to travel here since enemy instances already
+ * arrive via the existing per-room EnemyState reconciliation.
+ */
+export interface LevelStartMessage {
+  type: 'levelStart'
+  level: number
+  startCoord: RoomCoord
+  rooms: { coord: RoomCoord; isBoss: boolean }[]
+}
+
 export interface Vec2 {
   x: number
   y: number
@@ -70,7 +85,7 @@ export interface StateMessage {
   type: 'state'
   host: PlayerState
   joiner: PlayerState
-  /** Which room of rooms/floorLayout.ts's fixed TEST_FLOOR the host is currently in. */
+  /** Which room of the current level's generated floor (see LevelStartMessage) the host is currently in. */
   roomCoord: RoomCoord
   /** The current room's live enemies — spawned/destroyed as the room is fought through and left. */
   enemies: EnemyState[]
@@ -84,6 +99,8 @@ export interface StateMessage {
    * by construction instead of a runtime check.
    */
   enemyProjectiles: ProjectileState[]
+  /** Host-accumulated set of every room coord visited so far this level — joiner mirrors it wholesale, same as isPaused/isGameOver. Drives the minimap's fog-of-war reveal. */
+  exploredRooms: RoomCoord[]
   isGameOver: boolean
   isPaused: boolean
 }
@@ -164,6 +181,28 @@ export function isPauseToggleMessage(data: unknown): data is PauseToggleMessage 
   return typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'pauseToggle'
 }
 
+function isRoomEntry(value: unknown): value is { coord: RoomCoord; isBoss: boolean } {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const v = value as Record<string, unknown>
+  return isRoomCoord(v.coord) && typeof v.isBoss === 'boolean'
+}
+
+export function isLevelStartMessage(data: unknown): data is LevelStartMessage {
+  if (typeof data !== 'object' || data === null) {
+    return false
+  }
+  const v = data as Record<string, unknown>
+  return (
+    v.type === 'levelStart' &&
+    typeof v.level === 'number' &&
+    isRoomCoord(v.startCoord) &&
+    Array.isArray(v.rooms) &&
+    v.rooms.every(isRoomEntry)
+  )
+}
+
 export function isStateMessage(data: unknown): data is StateMessage {
   if (typeof data !== 'object' || data === null) {
     return false
@@ -180,6 +219,8 @@ export function isStateMessage(data: unknown): data is StateMessage {
     v.projectiles.every(isProjectileState) &&
     Array.isArray(v.enemyProjectiles) &&
     v.enemyProjectiles.every(isProjectileState) &&
+    Array.isArray(v.exploredRooms) &&
+    v.exploredRooms.every(isRoomCoord) &&
     typeof v.isGameOver === 'boolean' &&
     typeof v.isPaused === 'boolean'
   )

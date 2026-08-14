@@ -142,10 +142,11 @@ Two tiers of regular pickups, plus a separate holdable slot:
 | 9 | Full mix, hardest regular level |
 | 10 | Final boss only |
 
-- **Room archetype mixing ramps up with floor depth** (settled; previously a flat "never mixed" rule):
-  - Levels 1-6: each room stays single-archetype (matches the introduction schedule — a new archetype is learned in isolation before anything combines with it).
-  - Levels 7-8: mixed rooms start appearing — some rooms combine 2 archetypes drawn from what's unlocked so far. Exact mix chance/frequency per floor is a balance parameter, TBD until there's real room generation to tune against.
-  - Level 9 ("full mix"): rooms can freely combine 3+ archetypes from the entire unlocked roster — this is what "full mix" refers to at the room level, not just floor-level variety.
+- **Room archetype mixing ramps up with floor depth** (settled; supersedes an earlier "levels 7-8 mixed, level 9 full mix" draft, now that real procedural generation exists to tune against — `rooms/floorGenerator.ts`):
+  - Levels 1-3: each room stays single-archetype (matches the introduction schedule — a new archetype is learned in isolation before anything combines with it).
+  - Level 4+: mixed rooms start appearing — mix chance ramps from there (`clamp((level-3)*0.2, 0, 0.8)`) up to a cap.
+  - Level 8+: a smaller additional chance (~0.3) mixes 3 archetypes instead of 2, once enough are unlocked.
+  - Enemy count per room also scales with level, so difficulty ramps via both variety and volume, not mixing alone.
 - **Final boss** should have distinct phases that favor different roles (e.g. a Tank phase rewarding sustained DoT, a Swarm-summon phase rewarding AoE, a flee/snipe phase rewarding Gravity) so the fight doesn't just reward "whichever role does the most raw damage."
 - **Single-sitting runs only** — no save/resume across sessions. This is why the pause system (section 2) matters — a 70-90 room run needs a real pause, not just a nice-to-have.
 

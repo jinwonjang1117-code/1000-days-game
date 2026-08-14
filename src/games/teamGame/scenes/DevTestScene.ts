@@ -9,27 +9,24 @@ import type {
   KeyState,
   InputMessage,
   PauseToggleMessage,
+  LevelStartMessage,
   StateMessage,
   ProjectileState,
   EnemyState,
   Vec2,
 } from '../net/syncProtocol'
-import { isInputMessage, isPauseToggleMessage, isStateMessage } from '../net/syncProtocol'
+import { isInputMessage, isPauseToggleMessage, isLevelStartMessage, isStateMessage } from '../net/syncProtocol'
 import Player from '../entities/Player'
 import Projectile from '../entities/Projectile'
 import Enemy from '../entities/Enemy'
 import type { EnemyArchetype } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import type { Direction, RoomCoord, RoomDefinition } from '../rooms/floorLayout'
-import {
-  START_COORD,
-  ALL_DIRECTIONS,
-  getRoomDefinition,
-  getNeighborCoord,
-  hasNeighbor,
-  oppositeDirection,
-  coordsEqual,
-} from '../rooms/floorLayout'
+import { ALL_DIRECTIONS, getRoomDefinition, getNeighborCoord, hasNeighbor, oppositeDirection, coordsEqual } from '../rooms/floorLayout'
+import type { GeneratedFloor } from '../rooms/floorGenerator'
+import { generateFloor } from '../rooms/floorGenerator'
+import type { MiniMapRoomInfo } from '../ui/MiniMap'
+import MiniMap from '../ui/MiniMap'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -92,6 +89,19 @@ const ENEMY_PROJECTILE_COLOR = 0xff3366
 const ENEMY_PROJECTILE_SPEED = 240
 /** Splitter's children spread out a little instead of stacking exactly on the death spot. */
 const SPLIT_SPAWN_OFFSET = 20
+
+const ORIGIN_COORD: RoomCoord = { x: 0, y: 0 }
+const MINI_MAP_MARGIN = 16
+const LEVEL_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '16px',
+  color: '#ffcc66',
+}
+
+/** The boss room has no directional doors — clearing it reveals this instead, in the room's center. */
+const BOSS_HOLE_CENTER = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 }
+const BOSS_HOLE_RADIUS = 36
+const BOSS_HOLE_COLOR = 0x110022
 
 interface DoorZone {
   x: number
@@ -185,8 +195,18 @@ export default class DevTestScene extends Phaser.Scene {
   private roomEnemies: Map<number, Enemy> = new Map()
   private roomEnemyColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
   private nextEnemyId = 0
-  private currentRoomCoord: RoomCoord = START_COORD
+  private currentRoomCoord: RoomCoord = ORIGIN_COORD
   private doorGraphics: Partial<Record<Direction, Phaser.GameObjects.Rectangle>> = {}
+  private bossHoleGraphic?: Phaser.GameObjects.Arc
+
+  private currentLevel = 1
+  /** Shared by host and joiner — drives hasNeighbor/door logic, boss-room lookup, and the minimap. Host populates it from `currentFloor`; joiner from the received LevelStartMessage. */
+  private floorRoomEntries: MiniMapRoomInfo[] = []
+  private exploredRooms: RoomCoord[] = []
+  /** Host/solo-only — the full generated floor, including enemy compositions the joiner never needs locally. */
+  private currentFloor?: GeneratedFloor
+  private miniMap?: MiniMap
+  private levelText?: Phaser.GameObjects.Text
 
   private projectiles: Map<number, Projectile> = new Map()
   private projectileColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
@@ -243,9 +263,17 @@ export default class DevTestScene extends Phaser.Scene {
     this.roomEnemies.forEach((enemy) => enemy.destroy())
     this.roomEnemies.clear()
     this.nextEnemyId = 0
-    this.currentRoomCoord = START_COORD
+    this.currentRoomCoord = ORIGIN_COORD
     Object.values(this.doorGraphics).forEach((rect) => rect?.destroy())
     this.doorGraphics = {}
+    this.bossHoleGraphic?.destroy()
+    this.bossHoleGraphic = undefined
+    this.currentLevel = 1
+    this.floorRoomEntries = []
+    this.exploredRooms = []
+    this.currentFloor = undefined
+    this.miniMap?.destroy()
+    this.miniMap = undefined
     this.sharedUiObjects.forEach((object) => object.destroy())
     this.sharedUiObjects = []
     this.isSolo = false
@@ -271,6 +299,12 @@ export default class DevTestScene extends Phaser.Scene {
     )
 
     this.createDoorVisuals()
+    this.miniMap = new MiniMap(this, WORLD_WIDTH - MINI_MAP_MARGIN, MINI_MAP_MARGIN)
+    this.levelText = this.add
+      .text(WORLD_WIDTH - MINI_MAP_MARGIN, WORLD_HEIGHT, '', LEVEL_TEXT_STYLE)
+      .setOrigin(1, 1)
+      .setDepth(150)
+    this.sharedUiObjects.push(this.levelText)
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.broadcastTimer?.remove()
@@ -523,23 +557,39 @@ export default class DevTestScene extends Phaser.Scene {
         DOOR_CLOSED_COLOR,
       )
     }
+    this.bossHoleGraphic = this.add
+      .circle(BOSS_HOLE_CENTER.x, BOSS_HOLE_CENTER.y, BOSS_HOLE_RADIUS, BOSS_HOLE_COLOR)
+      .setVisible(false)
+  }
+
+  /** True once the current room's floorRoomEntries entry is marked isBoss (both host and joiner have this list populated). */
+  private isCurrentRoomBoss(): boolean {
+    return getRoomDefinition(this.floorRoomEntries, this.currentRoomCoord)?.isBoss ?? false
   }
 
   private updateDoorVisuals() {
     const clear = this.roomEnemies.size === 0
+
+    if (this.isCurrentRoomBoss()) {
+      Object.values(this.doorGraphics).forEach((rect) => rect?.setVisible(false))
+      this.bossHoleGraphic?.setVisible(clear)
+      return
+    }
+
+    this.bossHoleGraphic?.setVisible(false)
     for (const direction of ALL_DIRECTIONS) {
       const rect = this.doorGraphics[direction]
       if (!rect) {
         continue
       }
-      rect.setVisible(hasNeighbor(this.currentRoomCoord, direction))
+      rect.setVisible(hasNeighbor(this.floorRoomEntries, this.currentRoomCoord, direction))
       rect.setFillStyle(clear ? DOOR_OPEN_COLOR : DOOR_CLOSED_COLOR)
     }
   }
 
   private getTouchedDoorDirection(x: number, y: number): Direction | undefined {
     for (const direction of ALL_DIRECTIONS) {
-      if (!hasNeighbor(this.currentRoomCoord, direction)) {
+      if (!hasNeighbor(this.floorRoomEntries, this.currentRoomCoord, direction)) {
         continue
       }
       if (isInsideZone(x, y, DOOR_ZONES[direction])) {
@@ -549,11 +599,25 @@ export default class DevTestScene extends Phaser.Scene {
     return undefined
   }
 
-  /** Host-only: only checked once the room is clear — closed doors don't trigger anything. */
+  /** Host-only: only checked once the room is clear — closed doors/the boss hole don't trigger anything before then. */
   private checkRoomTransition() {
     if (this.roomEnemies.size > 0) {
       return
     }
+
+    if (this.isCurrentRoomBoss()) {
+      for (const player of [this.hostPlayer, this.joinerPlayer]) {
+        if (!player) {
+          continue
+        }
+        if (Phaser.Math.Distance.Between(player.x, player.y, BOSS_HOLE_CENTER.x, BOSS_HOLE_CENTER.y) < BOSS_HOLE_RADIUS) {
+          this.startLevel(this.currentLevel + 1)
+          return
+        }
+      }
+      return
+    }
+
     for (const player of [this.hostPlayer, this.joinerPlayer]) {
       if (!player) {
         continue
@@ -563,6 +627,39 @@ export default class DevTestScene extends Phaser.Scene {
         this.loadRoom(getNeighborCoord(this.currentRoomCoord, direction), oppositeDirection(direction))
         return
       }
+    }
+  }
+
+  /**
+   * Host/solo-only: generates a fresh floor for `level` and enters its
+   * start room. Called once for the very first level (from setupSolo/
+   * setupHost) and again every time a boss hole is stepped through, so
+   * players are explicitly re-teleported to their normal spawn points here
+   * — loadRoom only repositions players when given an `enteredFrom` edge,
+   * which a brand-new floor's start room doesn't have.
+   */
+  private startLevel(level: number) {
+    this.currentLevel = level
+    this.currentFloor = generateFloor(level)
+    this.floorRoomEntries = this.currentFloor.rooms.map((room) => ({ coord: room.coord, isBoss: !!room.isBoss }))
+    this.exploredRooms = [this.currentFloor.startCoord]
+
+    this.hostPlayer?.teleport(HOST_START.x, HOST_START.y)
+    this.joinerPlayer?.teleport(JOINER_START.x, JOINER_START.y)
+
+    this.miniMap?.setFloor(this.floorRoomEntries, this.currentFloor.startCoord)
+    this.levelText?.setText(`레벨 ${level}`)
+
+    this.loadRoom(this.currentFloor.startCoord)
+
+    if (this.connection?.open) {
+      const message: LevelStartMessage = {
+        type: 'levelStart',
+        level,
+        startCoord: this.currentFloor.startCoord,
+        rooms: this.floorRoomEntries,
+      }
+      this.connection.send(message)
     }
   }
 
@@ -595,7 +692,12 @@ export default class DevTestScene extends Phaser.Scene {
     }
 
     this.currentRoomCoord = coord
-    const room = getRoomDefinition(coord)
+    if (!this.exploredRooms.some((explored) => coordsEqual(explored, coord))) {
+      this.exploredRooms.push(coord)
+    }
+    this.miniMap?.refresh(this.exploredRooms, coord)
+
+    const room = getRoomDefinition(this.currentFloor?.rooms ?? [], coord)
     if (room) {
       this.spawnRoomEnemies(room)
     }
@@ -752,7 +854,7 @@ export default class DevTestScene extends Phaser.Scene {
   /** Solo: exact same simulation as host, minus a connection and a joiner. */
   private setupSolo() {
     this.hostPlayer = new Player(this, HOST_START.x, HOST_START.y, HOST_COLOR, { simulated: true })
-    this.loadRoom(START_COORD)
+    this.startLevel(1)
   }
 
   /** Host simulates both players, the current room, and every projectile; joiner's input arrives via 'data'. */
@@ -762,7 +864,7 @@ export default class DevTestScene extends Phaser.Scene {
     this.hostPlayer = hostPlayer
     this.joinerPlayer = joinerPlayer
 
-    this.loadRoom(START_COORD)
+    this.startLevel(1)
 
     this.onData = (data: unknown) => {
       if (isInputMessage(data)) {
@@ -798,6 +900,7 @@ export default class DevTestScene extends Phaser.Scene {
             id,
             pos: { x: projectile.x, y: projectile.y },
           })),
+          exploredRooms: this.exploredRooms,
           isGameOver: this.isGameOver,
           isPaused: this.isPaused,
         }
@@ -817,6 +920,15 @@ export default class DevTestScene extends Phaser.Scene {
     this.joinerPlayer = joinerPlayer
 
     this.onData = (data: unknown) => {
+      if (isLevelStartMessage(data)) {
+        this.currentLevel = data.level
+        this.floorRoomEntries = data.rooms
+        this.exploredRooms = [data.startCoord]
+        this.miniMap?.setFloor(this.floorRoomEntries, data.startCoord)
+        this.levelText?.setText(`레벨 ${data.level}`)
+        return
+      }
+
       if (!isStateMessage(data)) {
         return
       }
@@ -835,6 +947,8 @@ export default class DevTestScene extends Phaser.Scene {
       this.reconcileRoomEnemies(data.enemies)
       this.reconcileProjectiles(data.projectiles)
       this.reconcileEnemyProjectiles(data.enemyProjectiles)
+      this.exploredRooms = data.exploredRooms
+      this.miniMap?.refresh(this.exploredRooms, data.roomCoord)
       this.updateDoorVisuals()
 
       if (data.isGameOver) {
