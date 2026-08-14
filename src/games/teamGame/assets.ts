@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { HOME_BGM_KEY } from '../../config/audio'
 import { TEAM_GAME_NAMESPACE } from './gameId'
 
 export const TEAM_GAME_THUMBNAIL_KEY = `${TEAM_GAME_NAMESPACE}.thumbnail`
@@ -26,6 +27,15 @@ export function generateTeamGameThumbnail(scene: Phaser.Scene) {
   graphics.destroy()
 }
 
-// No game-specific assets yet — this is a placeholder that grows once the
-// lobby gives way to an actual core loop (sprites, room tiles, etc).
-export function loadTeamGameAssets(_scene: Phaser.Scene) {}
+// No game-specific assets yet, so this reuses the hub's own main-screen
+// track (see LobbyScene.ts) rather than play silence — swap for a real
+// teamGame BGM once one exists, nothing else needs to change. Guarded
+// since a hard refresh straight onto this game's URL skips MainMenuScene
+// entirely, so its preload can't be relied on to have already loaded this
+// key — but coming from the hub, it usually has, and re-queueing an
+// already-cached key is a harmless no-op either way.
+export function loadTeamGameAssets(scene: Phaser.Scene) {
+  if (!scene.cache.audio.exists(HOME_BGM_KEY)) {
+    scene.load.audio(HOME_BGM_KEY, 'assets/bgm-home.mp3')
+  }
+}

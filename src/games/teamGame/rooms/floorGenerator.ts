@@ -5,7 +5,7 @@
 // number. Pure logic, no Phaser dependency, mirrors gameplay/*.ts's
 // separation of data/logic from the scene that consumes it.
 
-import type { ArchetypeId } from '../gameplay/enemyArchetypes'
+import type { ArchetypeCategory, ArchetypeId } from '../gameplay/enemyArchetypes'
 import type { RoomCoord, RoomDefinition, RoomEnemyGroup } from './floorLayout'
 import { coordsEqual, getNeighborCoord, ALL_DIRECTIONS } from './floorLayout'
 
@@ -30,13 +30,28 @@ function roomCountForLevel(level: number): number {
 }
 
 /** Cumulative per DESIGN.md §8's enemy archetype introduction schedule. */
-function unlockedArchetypes(level: number): ArchetypeId[] {
+const ARCHETYPE_UNLOCK_LEVEL: Record<ArchetypeCategory, number> = {
+  swarmer: 1,
+  chaser: 1,
+  rangedShooter: 2,
+  tank: 3,
+  movingShooter: 3,
+  splitter: 4,
+}
+
+function unlockedCategories(level: number): ArchetypeCategory[] {
   const l = clampLevel(level)
-  const unlocked: ArchetypeId[] = ['swarmer', 'chaser']
-  if (l >= 3) unlocked.push('rangedShooter')
-  if (l >= 5) unlocked.push('tank')
-  if (l >= 7) unlocked.push('splitter')
-  return unlocked
+  return (Object.keys(ARCHETYPE_UNLOCK_LEVEL) as ArchetypeCategory[]).filter((c) => l >= ARCHETYPE_UNLOCK_LEVEL[c])
+}
+
+/** Weak right when a category unlocks and the level after; Strong starts at a coin-flip once eligible and ramps up to a high cap from there. */
+function pickTier(category: ArchetypeCategory, level: number): 'Weak' | 'Strong' {
+  const levelsSinceUnlock = clampLevel(level) - ARCHETYPE_UNLOCK_LEVEL[category]
+  if (levelsSinceUnlock < 2) {
+    return 'Weak'
+  }
+  const strongChance = Math.min(0.5 + (levelsSinceUnlock - 2) * 0.1, 0.8)
+  return Math.random() < strongChance ? 'Strong' : 'Weak'
 }
 
 function shuffled<T>(items: T[]): T[] {
@@ -62,9 +77,11 @@ function archetypeCountForRoom(level: number, unlockedCount: number): number {
 }
 
 function pickRoomEnemies(level: number): RoomEnemyGroup[] {
-  const unlocked = unlockedArchetypes(level)
+  const unlocked = unlockedCategories(level)
   const archetypeCount = Math.min(archetypeCountForRoom(level, unlocked.length), unlocked.length)
-  const chosen = shuffled(unlocked).slice(0, archetypeCount)
+  const chosen: ArchetypeId[] = shuffled(unlocked)
+    .slice(0, archetypeCount)
+    .map((category) => `${category}${pickTier(category, level)}` as ArchetypeId)
 
   const total = 3 + Math.floor(clampLevel(level) / 2)
   const groups: RoomEnemyGroup[] = []

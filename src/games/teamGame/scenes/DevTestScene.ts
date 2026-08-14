@@ -13,14 +13,23 @@ import type {
   StateMessage,
   ProjectileState,
   EnemyState,
+  ItemPickupState,
   Vec2,
 } from '../net/syncProtocol'
 import { isInputMessage, isPauseToggleMessage, isLevelStartMessage, isStateMessage } from '../net/syncProtocol'
 import Player from '../entities/Player'
-import Projectile from '../entities/Projectile'
+import Projectile, {
+  PROJECTILE_RADIUS,
+  PROJECTILE_SPEED,
+  PROJECTILE_MAX_RANGE,
+} from '../entities/Projectile'
 import Enemy from '../entities/Enemy'
+import ItemPickup from '../entities/ItemPickup'
 import type { EnemyArchetype } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
+import type { ItemId } from '../gameplay/items'
+import { getItemLabel, randomBoostItemId, randomStrongItemId, BOOST_ITEM_IDS, STRONG_ITEM_IDS, STAT_ITEMS } from '../gameplay/items'
+import type { BoostItemId, StrongItemId } from '../gameplay/items'
 import type { Direction, RoomCoord, RoomDefinition } from '../rooms/floorLayout'
 import { ALL_DIRECTIONS, getRoomDefinition, getNeighborCoord, hasNeighbor, oppositeDirection, coordsEqual } from '../rooms/floorLayout'
 import type { GeneratedFloor } from '../rooms/floorGenerator'
@@ -61,7 +70,28 @@ const RESUME_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   padding: { x: 20, y: 10 },
 }
 
+const PICKUP_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '16px',
+  color: '#ffee88',
+}
+
+// (removed unused DEV_BUTTON_STYLE; using DEV_ITEM_TEXT_STYLE for labels)
+
+const DEV_GROUP_TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '14px',
+  color: '#ffffff',
+}
+
+const DEV_ITEM_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '13px',
+  color: '#ffffff',
+}
+
 const PAUSE_BACKDROP_ALPHA = 0.6
+const EXPLOSION_COLOR = 0xff8800
 
 const MOVE_SPEED = 200
 const BROADCAST_INTERVAL_MS = 50
@@ -102,6 +132,19 @@ const LEVEL_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 const BOSS_HOLE_CENTER = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 }
 const BOSS_HOLE_RADIUS = 36
 const BOSS_HOLE_COLOR = 0x110022
+
+/** Room-clear rewards (DESIGN.md §7, boost/life tier now; role items/holdables wait on the role system). */
+const REGULAR_REWARD_SPACING = 50
+const LIFE_ITEM_CHANCE = 0.15
+/** Extra shots fired in a spread when a player has picked up Multi Shot, in addition to the center shot. */
+const MULTI_SHOT_SPREAD_RADIANS = Phaser.Math.DegToRad(15)
+
+function normalizeAngle(a: number): number {
+  const twoPi = Math.PI * 2
+  let n = a % twoPi
+  if (n < 0) n += twoPi
+  return Number(n.toFixed(4))
+}
 
 interface DoorZone {
   x: number
@@ -157,6 +200,8 @@ function keysEqual(a: KeyState, b: KeyState): boolean {
   return a.up === b.up && a.down === b.down && a.left === b.left && a.right === b.right
 }
 
+
+
 /**
  * Host-authoritative gameplay prototype (was "SyncTestScene" — outgrew that
  * name a while ago). Host simulates both players, the current room's
@@ -200,6 +245,14 @@ export default class DevTestScene extends Phaser.Scene {
   private bossHoleGraphic?: Phaser.GameObjects.Arc
   /** Host/solo-only: rooms whose enemies have already been cleared once — loadRoom skips (re)spawning enemies for these. */
   private clearedRooms: RoomCoord[] = []
+  /**
+   * True only during the exact frame trackRoomCleared() detects a fresh
+   * clear — checkRoomTransition holds off for that one frame so a
+   * just-spawned reward can't be destroyed (via a door/hole transition)
+   * before it's ever visible, e.g. a player already standing inside the
+   * boss hole's radius the instant the boss dies.
+   */
+  private roomJustCleared = false
 
   private currentLevel = 1
   /** Shared by host and joiner — drives hasNeighbor/door logic, boss-room lookup, and the minimap. Host populates it from `currentFloor`; joiner from the received LevelStartMessage. */
@@ -217,6 +270,10 @@ export default class DevTestScene extends Phaser.Scene {
   private enemyProjectiles: Map<number, Projectile> = new Map()
   private enemyProjectileColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
   private nextEnemyProjectileId = 0
+
+  private itemPickups: Map<number, ItemPickup> = new Map()
+  private itemPickupColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
+  private nextItemPickupId = 0
 
   private isGameOver = false
   private isPaused = false
@@ -254,6 +311,11 @@ export default class DevTestScene extends Phaser.Scene {
     this.enemyProjectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
     this.enemyProjectileColliders.clear()
     this.nextEnemyProjectileId = 0
+    this.itemPickups.forEach((pickup) => pickup.destroy())
+    this.itemPickups.clear()
+    this.itemPickupColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.itemPickupColliders.clear()
+    this.nextItemPickupId = 0
     this.joinerFireHeld = false
     this.lastSentFire = false
     this.isPaused = false
@@ -271,6 +333,7 @@ export default class DevTestScene extends Phaser.Scene {
     this.bossHoleGraphic?.destroy()
     this.bossHoleGraphic = undefined
     this.clearedRooms = []
+    this.roomJustCleared = false
     this.currentLevel = 1
     this.floorRoomEntries = []
     this.exploredRooms = []
@@ -291,14 +354,7 @@ export default class DevTestScene extends Phaser.Scene {
         .text(16, 588, '← 게임 허브', TOGGLE_BUTTON_STYLE)
         .setOrigin(0, 1)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => {
-          if (this.connection && this.onClose) {
-            this.connection.off('close', this.onClose)
-          }
-          disconnectPeer()
-          navigateToHub()
-          this.scene.start(CoreScenes.MainMenu)
-        }),
+        .on('pointerdown', () => this.returnToHub()),
     )
 
     this.createDoorVisuals()
@@ -326,6 +382,10 @@ export default class DevTestScene extends Phaser.Scene {
       this.enemyProjectiles.clear()
       this.enemyProjectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
       this.enemyProjectileColliders.clear()
+      this.itemPickups.forEach((pickup) => pickup.destroy())
+      this.itemPickups.clear()
+      this.itemPickupColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+      this.itemPickupColliders.clear()
       this.roomEnemyColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
       this.roomEnemyColliders.clear()
       this.roomEnemies.forEach((enemy) => enemy.destroy())
@@ -374,6 +434,13 @@ export default class DevTestScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     if (!this.isSolo && !this.connection) {
+      return
+    }
+
+    if (this.isGameOver) {
+      if (Phaser.Input.Keyboard.JustDown(this.cursorKeys.space)) {
+        this.returnToHub()
+      }
       return
     }
 
@@ -440,6 +507,79 @@ export default class DevTestScene extends Phaser.Scene {
     this.tryFirePlayer(this.joinerPlayer, this.joinerFireHeld, now)
 
     this.projectiles.forEach((projectile, id) => {
+      // Update cumulative path-length for range expiry (host simulated only).
+      if (typeof (projectile as any).updateTravelledDistance === 'function') {
+        ;(projectile as any).updateTravelledDistance()
+      }
+      // steer homing projectiles toward the nearest enemy (only if any exist)
+      if (typeof (projectile as any).isHoming === 'function' && (projectile as any).isHoming()) {
+        if (this.roomEnemies.size > 0) {
+          let nearest: Enemy | null = null
+          let nearestDist = Infinity
+          for (const enemy of this.roomEnemies.values()) {
+            const d = Phaser.Math.Distance.Between(projectile.x, projectile.y, enemy.x, enemy.y)
+            if (d < nearestDist) {
+              nearest = enemy
+              nearestDist = d
+            }
+          }
+          if (nearest && typeof (projectile as any).steerTo === 'function') {
+            ;(projectile as any).steerTo({ x: nearest.x, y: nearest.y })
+          }
+        }
+      }
+      // If this projectile is attached to an enemy, apply periodic ticks
+      if (typeof (projectile as any).isAttached === 'function' && (projectile as any).isAttached()) {
+        const attachedId = (projectile as any).getAttachedEnemyId()
+        if (attachedId !== null) {
+          const attachedEnemy = this.roomEnemies.get(attachedId)
+          if (!attachedEnemy) {
+            // Target died — detach and destroy projectile
+            ;(projectile as any).detach()
+            this.destroyProjectile(id)
+            return
+          }
+          // Apply periodic attached damage
+          if (typeof (projectile as any).shouldTickAttached === 'function' && (projectile as any).shouldTickAttached(this.time.now)) {
+            const tickDamage = projectile.damage
+            const diedByTick = attachedEnemy.applyHit(tickDamage)
+            if (diedByTick) {
+              const { splitsOnDeath, splitCount, explodesOnDeath, explosionRadius } = attachedEnemy.archetype
+              const deathX = attachedEnemy.x
+              const deathY = attachedEnemy.y
+              this.roomEnemyColliders.get(attachedId)?.forEach((collider) => collider.destroy())
+              this.roomEnemyColliders.delete(attachedId)
+              attachedEnemy.destroy()
+              this.roomEnemies.delete(attachedId)
+
+              if (splitsOnDeath && splitCount) {
+                const childArchetype = ARCHETYPES[splitsOnDeath]
+                for (let i = 0; i < splitCount; i++) {
+                  const angle = (i / splitCount) * Math.PI * 2
+                  this.spawnEnemy(
+                    childArchetype,
+                    deathX + Math.cos(angle) * SPLIT_SPAWN_OFFSET,
+                    deathY + Math.sin(angle) * SPLIT_SPAWN_OFFSET,
+                  )
+                }
+              }
+
+              if (explodesOnDeath) {
+                const radius = explosionRadius ?? 0
+                for (const player of [this.hostPlayer, this.joinerPlayer]) {
+                  if (player && !player.isOut && Phaser.Math.Distance.Between(player.x, player.y, deathX, deathY) <= radius) {
+                    this.handleHit(player)
+                  }
+                }
+                this.spawnExplosionEffect(deathX, deathY)
+              }
+            }
+          }
+          // Attached projectiles do not expire by range; keep them until explicitly destroyed
+          return
+        }
+      }
+
       if (projectile.hasExpired()) {
         this.destroyProjectile(id)
       }
@@ -450,6 +590,7 @@ export default class DevTestScene extends Phaser.Scene {
       }
     })
 
+    this.trackRoomCleared()
     this.updateDoorVisuals()
     this.checkRoomTransition()
 
@@ -478,14 +619,52 @@ export default class DevTestScene extends Phaser.Scene {
     return { x: nearest.x, y: nearest.y }
   }
 
-  /** Host-only: fires toward whichever direction the player is currently facing, if its cooldown allows. */
+  /** Host-only: fires toward whichever direction the player is currently facing, if its cooldown allows. Multi Shot adds two extra shots in a spread. */
   private tryFirePlayer(player: Player | undefined, firing: boolean, now: number) {
     if (!player || !firing) {
       return
     }
-    if (player.tryFire(now)) {
-      this.spawnProjectile(player.x, player.y, player.getFacingAngle())
+    if (!player.tryFire(now)) {
+      return
     }
+    const facing = player.getFacingAngle()
+    const stats = player.getStats()
+    // Compose base firing angles first based on Four Way stacking, then
+    // expand each base by Multi Shot stacking so the two effects compose
+    // naturally (e.g. four-way + multi-shot => multiple shots per dir).
+    const baseAngles: number[] = []
+    const fw = stats.hasMultiDirection
+    if (fw <= 0) {
+      baseAngles.push(facing)
+    } else if (fw === 1) {
+      // front/back
+      baseAngles.push(facing, normalizeAngle(facing + Math.PI))
+    } else if (fw === 2) {
+      // cardinal four
+      baseAngles.push(0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2)
+    } else {
+      // 8 directions (every 45deg)
+      for (let i = 0; i < 8; i++) baseAngles.push((i / 8) * Math.PI * 2)
+    }
+
+    const anglesSet = new Set<number>()
+    const ms = Math.min(stats.hasMultiShot, 2) // cap at 2 so shots per base are 1/2/3
+    for (const base of baseAngles) {
+      if (ms === 0) {
+        anglesSet.add(normalizeAngle(base))
+      } else if (ms === 1) {
+        // two-shot: symmetric around base with half-spread
+        anglesSet.add(normalizeAngle(base - MULTI_SHOT_SPREAD_RADIANS / 2))
+        anglesSet.add(normalizeAngle(base + MULTI_SHOT_SPREAD_RADIANS / 2))
+      } else {
+        // three-shot: left, center, right
+        anglesSet.add(normalizeAngle(base - MULTI_SHOT_SPREAD_RADIANS))
+        anglesSet.add(normalizeAngle(base))
+        anglesSet.add(normalizeAngle(base + MULTI_SHOT_SPREAD_RADIANS))
+      }
+    }
+
+    for (const a of anglesSet) this.spawnProjectile(player, a)
   }
 
   private showGameOver() {
@@ -493,6 +672,16 @@ export default class DevTestScene extends Phaser.Scene {
       return
     }
     this.gameOverText = this.add.text(400, 300, '게임 오버', GAME_OVER_STYLE).setOrigin(0.5).setDepth(100)
+  }
+
+  /** Shared by the "← 게임 허브" button and the game-over screen's Space shortcut. */
+  private returnToHub() {
+    if (this.connection && this.onClose) {
+      this.connection.off('close', this.onClose)
+    }
+    disconnectPeer()
+    navigateToHub()
+    this.scene.start(CoreScenes.MainMenu)
   }
 
   /**
@@ -540,11 +729,85 @@ export default class DevTestScene extends Phaser.Scene {
     sfxButton.setDepth(200)
 
     this.pauseMenuObjects = [backdrop, title, resumeButton, musicButton, sfxButton]
+
+    // Dev-only: quick give-item buttons (host only)
+    if (import.meta.env.DEV && (this.role === 'host' || this.isSolo)) {
+      const devTitle = this.add
+        .text(400, 400, 'DEV: Give Items', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
+        .setOrigin(0.5)
+        .setDepth(210)
+      this.pauseMenuObjects.push(devTitle)
+
+      // Group backgrounds
+      const boostBg = this.add.rectangle(240, 500, 320, 160, 0x222233, 0.6).setDepth(205)
+      const strongBg = this.add.rectangle(560, 500, 320, 160, 0x332222, 0.6).setDepth(205)
+      this.pauseMenuObjects.push(boostBg, strongBg)
+
+      // Group titles
+      const boostTitle = this.add.text(240, 450, 'Boosts', DEV_GROUP_TITLE_STYLE).setOrigin(0.5).setDepth(210)
+      const strongTitle = this.add.text(560, 450, 'Strong Items', DEV_GROUP_TITLE_STYLE).setOrigin(0.5).setDepth(210)
+      this.pauseMenuObjects.push(boostTitle, strongTitle)
+
+      // Layout boosts in two columns inside left group
+      let idx = 0
+      for (const id of BOOST_ITEM_IDS) {
+        const col = idx % 2
+        const row = Math.floor(idx / 2)
+        const x = 240 + (col === 0 ? -80 : 80)
+        const y = 480 + row * 28
+        const sw = this.add.rectangle(x - 80, y, 14, 14, STAT_ITEMS[id as BoostItemId].color).setDepth(210)
+        const btn = this.add
+          .text(x - 54, y, getItemLabel(id), DEV_ITEM_TEXT_STYLE)
+          .setOrigin(0, 0.5)
+          .setDepth(210)
+          .setInteractive({ useHandCursor: true })
+          .on('pointerdown', () => this.giveItemToHost(id))
+        this.pauseMenuObjects.push(sw, btn)
+        idx++
+      }
+
+      // Strong items in the right group
+      let sidx = 0
+      for (const id of STRONG_ITEM_IDS) {
+        const col = sidx % 2
+        const row = Math.floor(sidx / 2)
+        const x = 560 + (col === 0 ? -80 : 80)
+        const y = 480 + row * 28
+        const sw = this.add.rectangle(x - 80, y, 14, 14, STAT_ITEMS[id as StrongItemId].color).setDepth(210)
+        const btn = this.add
+          .text(x - 54, y, getItemLabel(id as any), DEV_ITEM_TEXT_STYLE)
+          .setOrigin(0, 0.5)
+          .setDepth(210)
+          .setInteractive({ useHandCursor: true })
+          .on('pointerdown', () => this.giveItemToHost(id as any))
+        this.pauseMenuObjects.push(sw, btn)
+        sidx++
+      }
+    }
   }
 
   private hidePauseMenu() {
     this.pauseMenuObjects.forEach((object) => object.destroy())
     this.pauseMenuObjects = []
+  }
+
+  private giveItemToHost(itemId: ItemId) {
+    if (this.role !== 'host' && !this.isSolo) {
+      return
+    }
+    const host = this.hostPlayer
+    if (!host) {
+      return
+    }
+    if (itemId === 'heart') {
+      host.grantLife()
+    } else {
+      host.applyItem(itemId)
+    }
+    this.showPickupText(host.x, host.y, getItemLabel(itemId))
+    if (itemId === 'fart') {
+      this.playFartSound()
+    }
   }
 
   // ---- Doors / rooms ----
@@ -570,11 +833,38 @@ export default class DevTestScene extends Phaser.Scene {
     return getRoomDefinition(this.floorRoomEntries, this.currentRoomCoord)?.isBoss ?? false
   }
 
+  /**
+   * Detects the moment a room's enemy list first empties out — updates
+   * clearedRooms (so loadRoom won't respawn enemies here again) and, on
+   * the host/solo side only, rolls a room-clear reward. Split out from
+   * updateDoorVisuals because this has a real gameplay side effect
+   * (spawning a pickup), not just a visual one, even though both are
+   * driven by the same "is this room clear" check and called from the
+   * same two spots (updateHostFrame, and the joiner's onData handler).
+   */
+  private trackRoomCleared() {
+    // Reset every call so checkRoomTransition only ever sees this true for
+    // the exact frame a fresh clear happened, not stale from an earlier one.
+    this.roomJustCleared = false
+
+    const clear = this.roomEnemies.size === 0
+    const wasAlreadyCleared = this.clearedRooms.some((cleared) => coordsEqual(cleared, this.currentRoomCoord))
+    if (!clear || wasAlreadyCleared) {
+      return
+    }
+
+    this.clearedRooms.push(this.currentRoomCoord)
+    this.roomJustCleared = true
+    // Only the host/solo side ever decides a reward — the joiner calls
+    // this too (for its own clearedRooms bookkeeping), but must never
+    // independently roll its own pickup.
+    if (this.role === 'host') {
+      this.rollRoomClearReward(this.currentRoomCoord)
+    }
+  }
+
   private updateDoorVisuals() {
     const clear = this.roomEnemies.size === 0
-    if (clear && !this.clearedRooms.some((cleared) => coordsEqual(cleared, this.currentRoomCoord))) {
-      this.clearedRooms.push(this.currentRoomCoord)
-    }
 
     if (this.isCurrentRoomBoss()) {
       Object.values(this.doorGraphics).forEach((rect) => rect?.setVisible(false))
@@ -607,7 +897,13 @@ export default class DevTestScene extends Phaser.Scene {
 
   /** Host-only: only checked once the room is clear — closed doors/the boss hole don't trigger anything before then. */
   private checkRoomTransition() {
-    if (this.roomEnemies.size > 0) {
+    // Same-frame guard: this must run after trackRoomCleared() every
+    // frame (see updateHostFrame) so a room that JUST became clear gets
+    // one frame before its door/hole can be walked through — otherwise a
+    // player already standing in range (very plausible for the boss hole,
+    // dead center of the room) would tear down the reward that was just
+    // spawned this same frame before ever seeing it.
+    if (this.roomEnemies.size > 0 || this.roomJustCleared) {
       return
     }
 
@@ -692,6 +988,12 @@ export default class DevTestScene extends Phaser.Scene {
     this.enemyProjectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
     this.enemyProjectileColliders.clear()
 
+    // Uncollected pickups don't carry through a door either — same reasoning as projectiles.
+    this.itemPickups.forEach((pickup) => pickup.destroy())
+    this.itemPickups.clear()
+    this.itemPickupColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.itemPickupColliders.clear()
+
     if (enteredFrom) {
       const [posA, posB] = getEntryPositions(enteredFrom)
       this.hostPlayer?.teleport(posA.x, posA.y)
@@ -709,6 +1011,7 @@ export default class DevTestScene extends Phaser.Scene {
     if (room && !alreadyCleared) {
       this.spawnRoomEnemies(room)
     }
+    this.trackRoomCleared()
     this.updateDoorVisuals()
   }
 
@@ -744,12 +1047,152 @@ export default class DevTestScene extends Phaser.Scene {
     this.roomEnemyColliders.set(id, colliders)
   }
 
+  // ---- Item pickups ----
+
+  /** Host-only: called exactly once, the moment a room's enemy list first empties. Start room never drops anything. */
+  private rollRoomClearReward(coord: RoomCoord) {
+    if (!this.currentFloor || coordsEqual(coord, this.currentFloor.startCoord)) {
+      return
+    }
+
+    if (this.isCurrentRoomBoss()) {
+      const itemId = randomStrongItemId()
+      this.spawnItemPickup(itemId, BOSS_HOLE_CENTER.x, BOSS_HOLE_CENTER.y - REGULAR_REWARD_SPACING)
+      return
+    }
+
+    const boostId = randomBoostItemId()
+    this.spawnItemPickup(boostId, ENEMY_SPAWN_CENTER.x - REGULAR_REWARD_SPACING / 2, ENEMY_SPAWN_CENTER.y)
+
+    if (Math.random() < LIFE_ITEM_CHANCE) {
+      this.spawnItemPickup('heart', ENEMY_SPAWN_CENTER.x + REGULAR_REWARD_SPACING / 2, ENEMY_SPAWN_CENTER.y)
+    }
+  }
+
+  /** Host-only: registers overlap against whichever of hostPlayer/joinerPlayer exist. */
+  private spawnItemPickup(itemId: ItemId, x: number, y: number) {
+    const id = this.nextItemPickupId++
+    const pickup = new ItemPickup(this, id, itemId, x, y, { simulated: true })
+    this.itemPickups.set(id, pickup)
+
+    const colliders: Phaser.Physics.Arcade.Collider[] = []
+    const hostPlayer = this.hostPlayer
+    if (hostPlayer) {
+      colliders.push(
+        this.physics.add.overlap(hostPlayer.square, pickup.shape, () => this.handleItemPickup(id, itemId, hostPlayer)),
+      )
+    }
+    const joinerPlayer = this.joinerPlayer
+    if (joinerPlayer) {
+      colliders.push(
+        this.physics.add.overlap(joinerPlayer.square, pickup.shape, () =>
+          this.handleItemPickup(id, itemId, joinerPlayer),
+        ),
+      )
+    }
+    this.itemPickupColliders.set(id, colliders)
+  }
+
+  private destroyItemPickup(id: number) {
+    this.itemPickups.get(id)?.destroy()
+    this.itemPickups.delete(id)
+    this.itemPickupColliders.get(id)?.forEach((collider) => collider.destroy())
+    this.itemPickupColliders.delete(id)
+  }
+
+  /** Host-only: applies the effect to whichever specific player touched it. */
+  private handleItemPickup(pickupId: number, itemId: ItemId, player: Player) {
+    this.destroyItemPickup(pickupId)
+
+    if (itemId === 'heart') {
+      player.grantLife()
+    } else {
+      player.applyItem(itemId)
+    }
+
+    this.showPickupText(player.x, player.y, getItemLabel(itemId))
+    if (itemId === 'fart') {
+      this.playFartSound()
+    }
+  }
+
+  /**
+   * Reveals what a mystery pickup actually was, the moment it's consumed
+   * — a rising, fading text flash at the pickup point. Called for every
+   * item (not just Fart), so this doubles as the "what did I just get"
+   * feedback the mystery-pickup design needs since the ground visual
+   * never says. Called locally by whichever client's overlap/
+   * reconciliation notices the pickup, so both host and joiner see it
+   * regardless of who actually grabbed it.
+   */
+  private showPickupText(x: number, y: number, text: string) {
+    const flash = this.add.text(x, y - 20, text, PICKUP_TEXT_STYLE).setOrigin(0.5).setDepth(120)
+    this.tweens.add({
+      targets: flash,
+      y: y - 50,
+      alpha: 0,
+      duration: 900,
+      onComplete: () => flash.destroy(),
+    })
+  }
+
+  /**
+   * Cosmetic only, purely local — a quick expanding-and-fading ring at a
+   * death point (currently just Strong Swarmer). Called directly from
+   * handleProjectileHitEnemy on the host/solo side; the joiner triggers
+   * the same call from reconcileRoomEnemies when it notices the enemy
+   * vanished, same "notice it happened locally" pattern as the item
+   * pickup reveal/Fart sound.
+   */
+  private spawnExplosionEffect(x: number, y: number) {
+    const ring = this.add.circle(x, y, 8, EXPLOSION_COLOR, 0.7).setDepth(120)
+    this.tweens.add({
+      targets: ring,
+      radius: 50,
+      alpha: 0,
+      duration: 350,
+      onComplete: () => ring.destroy(),
+    })
+  }
+
+  /** Cosmetic-only, no protocol involved — a quick synthesized noise (Web Audio, no asset needed: a short sawtooth blast with a downward pitch bend, the classic cheap "fart synth" trick). */
+  private playFartSound() {
+    try {
+      const AudioContextCtor =
+        window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const ctx = new AudioContextCtor()
+      const oscillator = ctx.createOscillator()
+      const gain = ctx.createGain()
+      oscillator.type = 'sawtooth'
+      oscillator.frequency.setValueAtTime(180, ctx.currentTime)
+      oscillator.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.35)
+      gain.gain.setValueAtTime(0.2, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35)
+      oscillator.connect(gain)
+      gain.connect(ctx.destination)
+      oscillator.start()
+      oscillator.stop(ctx.currentTime + 0.35)
+      oscillator.onended = () => ctx.close()
+    } catch {
+      // Web Audio unavailable in this environment — the text reveal still lands regardless.
+    }
+  }
+
   // ---- Projectiles ----
 
-  /** Host-only: spawns a projectile and wires overlap detection against every enemy currently in the room. */
-  private spawnProjectile(x: number, y: number, angle: number) {
+  /** Host-only: spawns a projectile (reading the firing player's item-boosted stats) and wires overlap detection against every enemy currently in the room. */
+  private spawnProjectile(player: Player, angle: number) {
     const id = this.nextProjectileId++
-    const projectile = new Projectile(this, id, x, y, angle, { simulated: true })
+    const stats = player.getStats()
+    const projectile = new Projectile(this, id, player.x, player.y, angle, {
+      simulated: true,
+      damage: stats.potatoDamage,
+      speed: PROJECTILE_SPEED * stats.potatoSpeedMultiplier,
+      radius: PROJECTILE_RADIUS * stats.potatoSizeMultiplier,
+      range: PROJECTILE_MAX_RANGE * stats.potatoRangeMultiplier,
+      pierceCount: stats.hasPiercing,
+      homingStrength: stats.hasHoming,
+    })
     this.projectiles.set(id, projectile)
 
     const colliders: Phaser.Physics.Arcade.Collider[] = []
@@ -770,17 +1213,31 @@ export default class DevTestScene extends Phaser.Scene {
     this.projectileColliders.delete(id)
   }
 
-  /** Host-only: applies damage; if lethal, removes the enemy from the room's list for good (and spawns split children, if any). */
+  /**
+   * Host-only: applies damage; if lethal, removes the enemy from the
+   * room's list for good (and spawns split children, if any). Looks the
+   * projectile up (rather than destroying it immediately) because a
+   * piercing shot survives a hit — Arcade overlap fires every frame two
+   * bodies are touching, not once, so hasHitEnemy/recordEnemyHit guard
+   * against re-applying damage to the same enemy while a pierced shot is
+   * still passing through it.
+   */
   private handleProjectileHitEnemy(projectileId: number, enemyId: number) {
-    this.destroyProjectile(projectileId)
-
+    const projectile = this.projectiles.get(projectileId)
     const enemy = this.roomEnemies.get(enemyId)
-    if (!enemy) {
+    if (!projectile || !enemy || projectile.hasHitEnemy(enemyId)) {
       return
     }
-    const died = enemy.applyHit()
+    projectile.recordEnemyHit(enemyId)
+
+    // If projectile can attach (homing+pierce), attach and start periodic ticks
+    if ((projectile as any).shouldAttachOnHit && (projectile as any).shouldAttachOnHit()) {
+      ;(projectile as any).attachTo(enemyId)
+    }
+
+    const died = enemy.applyHit(projectile.damage)
     if (died) {
-      const { splitsOnDeath, splitCount } = enemy.archetype
+      const { splitsOnDeath, splitCount, explodesOnDeath, explosionRadius } = enemy.archetype
       const deathX = enemy.x
       const deathY = enemy.y
 
@@ -799,6 +1256,27 @@ export default class DevTestScene extends Phaser.Scene {
             deathY + Math.sin(angle) * SPLIT_SPAWN_OFFSET,
           )
         }
+      }
+
+      // Strong Swarmer's escalation — a normal hit (DESIGN.md §3, no
+      // damage variance), just triggered by proximity at death instead of
+      // contact while alive. Reuses handleHit, so invincibility frames
+      // already apply for free.
+      if (explodesOnDeath) {
+        const radius = explosionRadius ?? 0
+        for (const player of [this.hostPlayer, this.joinerPlayer]) {
+          if (player && !player.isOut && Phaser.Math.Distance.Between(player.x, player.y, deathX, deathY) <= radius) {
+            this.handleHit(player)
+          }
+        }
+        this.spawnExplosionEffect(deathX, deathY)
+      }
+    }
+
+    if (projectile.consumePierce()) {
+      // If it attached, keep the projectile around to tick attached damage
+      if (!(projectile as any).isAttached()) {
+        this.destroyProjectile(projectileId)
       }
     }
   }
@@ -854,7 +1332,35 @@ export default class DevTestScene extends Phaser.Scene {
     const joinerOut = this.joinerPlayer ? this.joinerPlayer.isOut : true
     if (hostOut && joinerOut) {
       this.isGameOver = true
+      this.showGameOver()
+      // Stop simulation on the host and notify the joiner immediately.
+      this.physics.pause()
+      this.sendStateSnapshot()
+      this.broadcastTimer?.remove()
+      this.broadcastTimer = undefined
     }
+  }
+
+  /** Host-only: build and send one authoritative StateMessage immediately. */
+  private sendStateSnapshot() {
+    if (!this.connection || !this.connection.open) {
+      return
+    }
+    const now = this.time.now
+    const message: StateMessage = {
+      type: 'state',
+      host: this.hostPlayer ? this.hostPlayer.getNetworkState(now) : { pos: { x: 0, y: 0 }, lives: 0, isOut: true, isInvincible: false },
+      joiner: this.joinerPlayer ? this.joinerPlayer.getNetworkState(now) : { pos: { x: 0, y: 0 }, lives: 0, isOut: true, isInvincible: false },
+      roomCoord: this.currentRoomCoord,
+      enemies: Array.from(this.roomEnemies.values()).map((enemy) => enemy.getNetworkState()),
+      projectiles: Array.from(this.projectiles.entries()).map(([id, projectile]) => ({ id, pos: { x: projectile.x, y: projectile.y }, radius: projectile.radius })),
+      enemyProjectiles: Array.from(this.enemyProjectiles.entries()).map(([id, projectile]) => ({ id, pos: { x: projectile.x, y: projectile.y }, radius: projectile.radius })),
+      exploredRooms: this.exploredRooms,
+      itemPickups: Array.from(this.itemPickups.values()).map((pickup) => ({ id: pickup.id, itemId: pickup.itemId, pos: { x: pickup.x, y: pickup.y } })),
+      isGameOver: this.isGameOver,
+      isPaused: this.isPaused,
+    }
+    this.connection.send(message)
   }
 
   // ---- Setup ----
@@ -903,12 +1409,19 @@ export default class DevTestScene extends Phaser.Scene {
           projectiles: Array.from(this.projectiles.entries()).map(([id, projectile]) => ({
             id,
             pos: { x: projectile.x, y: projectile.y },
+            radius: projectile.radius,
           })),
           enemyProjectiles: Array.from(this.enemyProjectiles.entries()).map(([id, projectile]) => ({
             id,
             pos: { x: projectile.x, y: projectile.y },
+            radius: projectile.radius,
           })),
           exploredRooms: this.exploredRooms,
+          itemPickups: Array.from(this.itemPickups.values()).map((pickup) => ({
+            id: pickup.id,
+            itemId: pickup.itemId,
+            pos: { x: pickup.x, y: pickup.y },
+          })),
           isGameOver: this.isGameOver,
           isPaused: this.isPaused,
         }
@@ -955,10 +1468,13 @@ export default class DevTestScene extends Phaser.Scene {
       this.reconcileRoomEnemies(data.enemies)
       this.reconcileProjectiles(data.projectiles)
       this.reconcileEnemyProjectiles(data.enemyProjectiles)
+      this.reconcileItemPickups(data.itemPickups)
       this.exploredRooms = data.exploredRooms
       this.miniMap?.refresh(this.exploredRooms, data.roomCoord)
+      this.trackRoomCleared()
       this.updateDoorVisuals()
 
+      this.isGameOver = data.isGameOver
       if (data.isGameOver) {
         this.showGameOver()
       }
@@ -979,6 +1495,9 @@ export default class DevTestScene extends Phaser.Scene {
 
     for (const [id, enemy] of this.roomEnemies) {
       if (!receivedIds.has(id)) {
+        if (enemy.archetype.explodesOnDeath) {
+          this.spawnExplosionEffect(enemy.x, enemy.y)
+        }
         enemy.destroy()
         this.roomEnemies.delete(id)
       }
@@ -1008,7 +1527,10 @@ export default class DevTestScene extends Phaser.Scene {
     for (const state of received) {
       let projectile = this.projectiles.get(state.id)
       if (!projectile) {
-        projectile = new Projectile(this, state.id, state.pos.x, state.pos.y, 0, { simulated: false })
+        projectile = new Projectile(this, state.id, state.pos.x, state.pos.y, 0, {
+          simulated: false,
+          radius: state.radius,
+        })
         this.projectiles.set(state.id, projectile)
       }
       projectile.applyReceivedPos(state.pos)
@@ -1032,10 +1554,43 @@ export default class DevTestScene extends Phaser.Scene {
         projectile = new Projectile(this, state.id, state.pos.x, state.pos.y, 0, {
           simulated: false,
           color: ENEMY_PROJECTILE_COLOR,
+          radius: state.radius,
         })
         this.enemyProjectiles.set(state.id, projectile)
       }
       projectile.applyReceivedPos(state.pos)
+    }
+  }
+
+  /**
+   * Joiner-only: same create/destroy-on-presence reconciliation as
+   * reconcileProjectiles, but pickups never move (no interpolation, no
+   * applyReceivedState). Detects a pickup vanishing as "someone collected
+   * it" and reveals what it was the same way handleItemPickup does on the
+   * host side, so both players see the reveal (and hear the Fart, if
+   * that's what it was) regardless of who actually grabbed it.
+   */
+  private reconcileItemPickups(received: ItemPickupState[]) {
+    const receivedIds = new Set(received.map((pickup) => pickup.id))
+
+    for (const [id, pickup] of this.itemPickups) {
+      if (!receivedIds.has(id)) {
+        this.showPickupText(pickup.x, pickup.y, getItemLabel(pickup.itemId))
+        if (pickup.itemId === 'fart') {
+          this.playFartSound()
+        }
+        pickup.destroy()
+        this.itemPickups.delete(id)
+      }
+    }
+
+    for (const state of received) {
+      if (!this.itemPickups.has(state.id)) {
+        this.itemPickups.set(
+          state.id,
+          new ItemPickup(this, state.id, state.itemId, state.pos.x, state.pos.y, { simulated: false }),
+        )
+      }
     }
   }
 }

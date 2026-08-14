@@ -1,10 +1,18 @@
 import Phaser from 'phaser'
 import type { LifeState } from '../gameplay/lives'
-import { createLifeState, applyHit as applyHitToLifeState, isInvincible as isLifeStateInvincible } from '../gameplay/lives'
+import {
+  createLifeState,
+  applyHit as applyHitToLifeState,
+  grantLife as grantLifeToState,
+  isInvincible as isLifeStateInvincible,
+  INVINCIBILITY_DURATION_MS,
+} from '../gameplay/lives'
 import type { AttackState } from '../gameplay/attack'
-import { createAttackState, canFire, recordFire } from '../gameplay/attack'
+import { createAttackState, canFire, recordFire, DEFAULT_FIRE_RATE_MS } from '../gameplay/attack'
 import type { FlickerController } from '../gameplay/flicker'
 import { createFlickerController } from '../gameplay/flicker'
+import type { PlayerStats, BoostItemId, StrongItemId } from '../gameplay/items'
+import { createDefaultStats, STAT_ITEMS } from '../gameplay/items'
 import type { KeyState, PlayerState, Vec2 } from '../net/syncProtocol'
 
 const PLAYER_SIZE = 40
@@ -43,6 +51,8 @@ export default class Player {
   private attackState: AttackState = createAttackState()
   /** Last non-zero movement direction — persists while standing still, since aim has no other input source. */
   private facingAngle = 0
+  /** Room-clear item effects picked up so far this run — see gameplay/items.ts. */
+  private stats: PlayerStats = createDefaultStats()
 
   // Render-only (joiner) only.
   private target: Vec2 | null = null
@@ -89,8 +99,9 @@ export default class Player {
     const rawX = (keys.right ? 1 : 0) - (keys.left ? 1 : 0)
     const rawY = (keys.down ? 1 : 0) - (keys.up ? 1 : 0)
     const length = Math.hypot(rawX, rawY)
-    const vx = length > 0 ? (rawX / length) * speed : 0
-    const vy = length > 0 ? (rawY / length) * speed : 0
+    const effectiveSpeed = speed * this.stats.moveSpeedMultiplier
+    const vx = length > 0 ? (rawX / length) * effectiveSpeed : 0
+    const vy = length > 0 ? (rawY / length) * effectiveSpeed : 0
     this.body.setVelocity(vx, vy)
 
     if (length > 0) {
@@ -104,7 +115,21 @@ export default class Player {
   }
 
   applyHit(now: number) {
-    this.lifeState = applyHitToLifeState(this.lifeState, now)
+    this.lifeState = applyHitToLifeState(this.lifeState, now, INVINCIBILITY_DURATION_MS + this.stats.invincibilityBonusMs)
+  }
+
+  /** Item-pickup effect (Heart). */
+  grantLife() {
+    this.lifeState = grantLifeToState(this.lifeState)
+  }
+
+  /** Item-pickup effect (any boost or boss-tier item) — looks up its effect and applies it to this player's stats. 'fart' is a no-op by design (see gameplay/items.ts). */
+  applyItem(itemId: BoostItemId | StrongItemId) {
+    this.stats = STAT_ITEMS[itemId].apply(this.stats)
+  }
+
+  getStats(): PlayerStats {
+    return this.stats
   }
 
   /** Instantly moves and zeroes velocity — for room transitions, not normal movement. */
@@ -118,7 +143,8 @@ export default class Player {
 
   /** Returns true (and starts cooldown) if firing is currently allowed. No-ops while out. */
   tryFire(now: number): boolean {
-    if (!this.body || this.lifeState.isOut || !canFire(this.attackState, now)) {
+    const fireRateMs = DEFAULT_FIRE_RATE_MS * this.stats.potatoFireRateMultiplier
+    if (!this.body || this.lifeState.isOut || !canFire(this.attackState, now, fireRateMs)) {
       return false
     }
     this.attackState = recordFire(this.attackState, now)

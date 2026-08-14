@@ -5,6 +5,8 @@
 import type { RoomCoord } from '../rooms/floorLayout'
 import type { ArchetypeId } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
+import type { ItemId } from '../gameplay/items'
+import { isKnownItemId } from '../gameplay/items'
 
 export interface KeyState {
   up: boolean
@@ -54,6 +56,15 @@ export interface Vec2 {
 export interface ProjectileState {
   id: number
   pos: Vec2
+  /** Only present when a shot's radius differs from the default (Big Shot) — the joiner needs this to render it at the right size too. */
+  radius?: number
+}
+
+/** One active room-clear reward pickup, sitting still on the ground until someone walks over it. */
+export interface ItemPickupState {
+  id: number
+  itemId: ItemId
+  pos: Vec2
 }
 
 /** One active enemy's authoritative state — a room can now hold more than one at a time. */
@@ -101,6 +112,8 @@ export interface StateMessage {
   enemyProjectiles: ProjectileState[]
   /** Host-accumulated set of every room coord visited so far this level — joiner mirrors it wholesale, same as isPaused/isGameOver. Drives the minimap's fog-of-war reveal. */
   exploredRooms: RoomCoord[]
+  /** Room-clear reward pickups currently on the ground in this room. */
+  itemPickups: ItemPickupState[]
   isGameOver: boolean
   isPaused: boolean
 }
@@ -144,7 +157,15 @@ function isProjectileState(value: unknown): value is ProjectileState {
     return false
   }
   const v = value as Record<string, unknown>
-  return typeof v.id === 'number' && isVec2(v.pos)
+  return typeof v.id === 'number' && isVec2(v.pos) && (v.radius === undefined || typeof v.radius === 'number')
+}
+
+function isItemPickupState(value: unknown): value is ItemPickupState {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const v = value as Record<string, unknown>
+  return typeof v.id === 'number' && typeof v.itemId === 'string' && isKnownItemId(v.itemId) && isVec2(v.pos)
 }
 
 function isEnemyState(value: unknown): value is EnemyState {
@@ -221,6 +242,8 @@ export function isStateMessage(data: unknown): data is StateMessage {
     v.enemyProjectiles.every(isProjectileState) &&
     Array.isArray(v.exploredRooms) &&
     v.exploredRooms.every(isRoomCoord) &&
+    Array.isArray(v.itemPickups) &&
+    v.itemPickups.every(isItemPickupState) &&
     typeof v.isGameOver === 'boolean' &&
     typeof v.isPaused === 'boolean'
   )

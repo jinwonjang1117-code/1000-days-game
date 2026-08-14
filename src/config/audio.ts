@@ -4,6 +4,9 @@ const BGM_VOLUME = 0.5
 const SFX_VOLUME = 0.7
 export const START_BGM_VOLUME = 0.8
 
+/** The hub's main-screen track — shared so any game without its own BGM yet can reuse it instead of playing silence. */
+export const HOME_BGM_KEY = 'bgm-home'
+
 let currentBgmKey: string | null = null
 let currentBgm: Phaser.Sound.BaseSound | null = null
 

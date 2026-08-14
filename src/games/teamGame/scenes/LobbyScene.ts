@@ -3,6 +3,7 @@ import type { DataConnection } from 'peerjs'
 import { TeamGameScenes } from '../sceneKeys'
 import { TEAM_GAME_TITLE } from '../gameId'
 import { CoreScenes } from '../../../config/sceneKeys'
+import { playBgm, HOME_BGM_KEY } from '../../../config/audio'
 import { TOGGLE_BUTTON_STYLE } from '../../../ui/audioToggles'
 import { navigateToHub } from '../../../router'
 import { hostGame, joinGame, disconnectPeer, exchangeNames } from '../net/peerConnection'
@@ -80,6 +81,11 @@ export default class LobbyScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor('#1a1a2e')
+    // No teamGame-specific track yet — reuse the hub's main-screen BGM
+    // rather than play silence (see assets.ts's loadTeamGameAssets).
+    // playBgm() is a no-op if it's already playing (e.g. arrived from the
+    // hub, where it's already going), so this never restarts it.
+    playBgm(this, HOME_BGM_KEY)
     this.showMenuStep()
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {

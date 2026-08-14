@@ -26,7 +26,11 @@ export function isInvincible(state: LifeState, now: number): boolean {
 }
 
 /** No-ops if already out or currently invincible — safe to call on every overlap frame. */
-export function applyHit(state: LifeState, now: number): LifeState {
+export function applyHit(
+  state: LifeState,
+  now: number,
+  invincibilityDurationMs: number = INVINCIBILITY_DURATION_MS,
+): LifeState {
   if (state.isOut || isInvincible(state, now)) {
     return state
   }
@@ -35,8 +39,13 @@ export function applyHit(state: LifeState, now: number): LifeState {
   return {
     lives,
     isOut: lives <= 0,
-    invincibleUntil: now + INVINCIBILITY_DURATION_MS,
+    invincibleUntil: now + invincibilityDurationMs,
   }
+}
+
+/** Item-pickup effect (Heart) — no other rules apply, just +1 life. */
+export function grantLife(state: LifeState): LifeState {
+  return { ...state, lives: state.lives + 1 }
 }
 
 /**

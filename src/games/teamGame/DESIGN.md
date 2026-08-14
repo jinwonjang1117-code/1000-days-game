@@ -100,6 +100,11 @@ Two tiers of regular pickups, plus a separate holdable slot:
 3. **Boost items** — role-agnostic stat ups (attack speed, move speed, damage, projectile count, range, etc.) plus role-specific modifiers (e.g. "+15% freeze chance") living in this same tier. Regular room-clear reward.
 4. **Holdable item** — a **single equip slot** (not a stacking collection). Picking up a new holdable while the slot is full **auto-swaps and drops the old one on the ground** (teammate can pick up the discard if it suits their role). Drops randomly in regular rooms, same frequency class as other consumables — not mini-boss-exclusive.
 5. **Life items** — rare, random chance on room-clear (not scheduled). Grants +1 life.
+6. **Boss-tier items** (settled) — a separate tier dropped specifically at boss-room clear, not the regular pool: currently Multi Shot (extra projectiles) and Piercing Shot (a shot survives passing through an extra enemy). Meant to feel like an earned reward for beating the room's fight, not a random roll.
+
+**Mystery pickups** (settled): every regular-tier pickup (boost, life, and the joke Fart item below) looks identical on the ground — one generic unidentified visual — so the effect is only revealed on pickup, not before. Boss-tier items are the exception: they're visually identified, since they're an earned reward rather than a grab-bag roll.
+
+**Fart** — a no-op regular-tier item (does nothing mechanically) that exists purely for the joke of an unlucky mystery pickup. Its color and payoff (a farting noise) are only revealed on pickup, same as everything else in the mystery pool.
 
 ### Signature holdables (one per role)
 

@@ -2,13 +2,11 @@ import Phaser from 'phaser'
 import { CoreScenes } from '../config/sceneKeys'
 import { GAMES } from '../config/games'
 import type { GameDefinition } from '../config/games'
-import { playBgm } from '../config/audio'
+import { playBgm, HOME_BGM_KEY } from '../config/audio'
 import { createAudioToggleButtons } from '../ui/audioToggles'
 import { currentRouteGameId, navigateToGame } from '../router'
 import { createNameInput } from '../ui/nameInput'
 import type { NameInputHandle } from '../ui/nameInput'
-
-const HOME_BGM_KEY = 'bgm-home'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',

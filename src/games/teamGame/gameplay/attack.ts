@@ -4,7 +4,7 @@
 // actually fires, so fire-rate can later become a role/boost-modified stat
 // without the joiner needing to know the current rate.
 
-export const DEFAULT_FIRE_RATE_MS = 300
+export const DEFAULT_FIRE_RATE_MS = 500
 
 export interface AttackState {
   /** Host's own scene clock (scene.time.now), like LifeState.invincibleUntil. */
