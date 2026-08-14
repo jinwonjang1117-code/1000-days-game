@@ -3,7 +3,7 @@ import type { DataConnection } from 'peerjs'
 import { TeamGameScenes } from '../sceneKeys'
 import { TEAM_GAME_TITLE } from '../gameId'
 import { CoreScenes } from '../../../config/sceneKeys'
-import { createAudioToggleButtons, TOGGLE_BUTTON_STYLE } from '../../../ui/audioToggles'
+import { TOGGLE_BUTTON_STYLE } from '../../../ui/audioToggles'
 import { navigateToHub } from '../../../router'
 import { hostGame, joinGame, disconnectPeer, exchangeNames } from '../net/peerConnection'
 import { showTextInputOverlay } from '../../../ui/domOverlay'
@@ -80,7 +80,6 @@ export default class LobbyScene extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor('#1a1a2e')
-    createAudioToggleButtons(this)
     this.showMenuStep()
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -147,6 +146,14 @@ export default class LobbyScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => this.startJoining()),
+    )
+
+    this.addStepObject(
+      this.add
+        .text(400, 420, '솔로 테스트 (개발용)', CANCEL_BUTTON_STYLE)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => this.scene.start(TeamGameScenes.DevTest, { solo: true })),
     )
 
     this.addBackToHubButton()
@@ -243,10 +250,10 @@ export default class LobbyScene extends Phaser.Scene {
 
     this.addStepObject(
       this.add
-        .text(400, 380, '동기화 테스트 시작', MENU_BUTTON_STYLE)
+        .text(400, 380, '테스트 플레이 시작', MENU_BUTTON_STYLE)
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.scene.start(TeamGameScenes.SyncTest)),
+        .on('pointerdown', () => this.scene.start(TeamGameScenes.DevTest)),
     )
 
     this.addBackToHubButton()

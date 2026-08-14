@@ -5,7 +5,7 @@ import StartScene from '../games/thousandDays/scenes/StartScene'
 import GameScene from '../games/thousandDays/scenes/GameScene'
 import UIScene from '../games/thousandDays/scenes/UIScene'
 import LobbyScene from '../games/teamGame/scenes/LobbyScene'
-import SyncTestScene from '../games/teamGame/scenes/SyncTestScene'
+import DevTestScene from '../games/teamGame/scenes/DevTestScene'
 
 const gameConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -28,7 +28,7 @@ const gameConfig: Phaser.Types.Core.GameConfig = {
   },
   // MainMenuScene boots first: the hub is light, and each game's assets are
   // fetched by PreloadScene only once that game is chosen.
-  scene: [MainMenuScene, PreloadScene, StartScene, GameScene, UIScene, LobbyScene, SyncTestScene],
+  scene: [MainMenuScene, PreloadScene, StartScene, GameScene, UIScene, LobbyScene, DevTestScene],
   backgroundColor: '#000000',
 }
 

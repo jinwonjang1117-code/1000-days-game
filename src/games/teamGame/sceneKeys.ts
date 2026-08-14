@@ -6,5 +6,5 @@ import { TEAM_GAME_NAMESPACE } from './gameId'
  */
 export const TeamGameScenes = {
   Lobby: `${TEAM_GAME_NAMESPACE}.Lobby`,
-  SyncTest: `${TEAM_GAME_NAMESPACE}.SyncTest`,
+  DevTest: `${TEAM_GAME_NAMESPACE}.DevTest`,
 } as const
