@@ -1,4 +1,4 @@
-export type Difficulty = 'low' | 'high'
+export type Difficulty = 'low' | 'mid' | 'high'
 
 interface DifficultySettings {
   playerLives: number
@@ -16,6 +16,13 @@ const DIFFICULTY_SETTINGS: Record<Difficulty, DifficultySettings> = {
     winLine1: '난이도 하 상품은...',
     winLine2: '주방 오븐 아래 서랍 안에 있습니다!',
   },
+  mid: {
+    playerLives: 5,
+    bossHp: 10,
+    winTitle: '축하합니다! 1000일에 도달했습니다!',
+    winLine1: '난이도 상 상품은...',
+    winLine2: '진원이의 10분 안마 찬스 입니다!',
+  },
   high: {
     playerLives: 5,
     bossHp: 10,
@@ -30,7 +37,7 @@ const DIFFICULTY_STORAGE_KEY = 'difficulty'
 function loadStoredDifficulty(): Difficulty {
   try {
     const stored = localStorage.getItem(DIFFICULTY_STORAGE_KEY)
-    return stored === 'low' || stored === 'high' ? stored : 'low'
+    return stored === 'low' || stored === 'mid' || stored === 'high' ? stored : 'low'
   } catch {
     return 'low'
   }

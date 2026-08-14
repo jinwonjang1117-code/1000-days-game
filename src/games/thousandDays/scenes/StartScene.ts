@@ -191,7 +191,7 @@ export default class StartScene extends Phaser.Scene {
 
     const lowDifficultyButton = this.addStepObject(
       this.add
-        .text(360, 435, '하', DIFFICULTY_BUTTON_UNSELECTED_STYLE)
+        .text(320, 435, '하', DIFFICULTY_BUTTON_UNSELECTED_STYLE)
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => {
@@ -200,9 +200,20 @@ export default class StartScene extends Phaser.Scene {
         }),
     )
 
+    const midDifficultyButton = this.addStepObject(
+      this.add
+        .text(400, 435, '중', DIFFICULTY_BUTTON_UNSELECTED_STYLE)
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+          setDifficulty('mid')
+          updateDifficultyButtonStyles()
+        }),
+    )
+
     const highDifficultyButton = this.addStepObject(
       this.add
-        .text(440, 435, '상', DIFFICULTY_BUTTON_UNSELECTED_STYLE)
+        .text(480, 435, '상', DIFFICULTY_BUTTON_UNSELECTED_STYLE)
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => {
@@ -214,6 +225,7 @@ export default class StartScene extends Phaser.Scene {
     const updateDifficultyButtonStyles = () => {
       const difficulty = getDifficulty()
       lowDifficultyButton.setStyle(difficulty === 'low' ? DIFFICULTY_BUTTON_SELECTED_STYLE : DIFFICULTY_BUTTON_UNSELECTED_STYLE)
+      midDifficultyButton.setStyle(difficulty === 'mid' ? DIFFICULTY_BUTTON_SELECTED_STYLE : DIFFICULTY_BUTTON_UNSELECTED_STYLE)
       highDifficultyButton.setStyle(difficulty === 'high' ? DIFFICULTY_BUTTON_SELECTED_STYLE : DIFFICULTY_BUTTON_UNSELECTED_STYLE)
     }
     updateDifficultyButtonStyles()

@@ -33,7 +33,7 @@ export interface BossArenaBounds {
 
 export type GetPlayerPosition = () => { x: number; y: number }
 export type SpawnMinion = () => void
-export type FireBossProjectile = (x: number, y: number, direction: -1 | 1) => void
+export type FireBossProjectile = (x: number, y: number, direction: -1 | 1, targetX: number, targetY: number) => void
 export type StartRainAttack = () => void
 export type OnBossDefeated = () => void
 export type OnBossDefeatStarted = () => void
@@ -227,7 +227,7 @@ export default class BossEnemy extends Phaser.Physics.Arcade.Sprite {
     this.telegraph(() => {
       const playerPos = this.getPlayerPosition()
       const direction: -1 | 1 = playerPos.x < this.x ? -1 : 1
-      this.fireProjectile(this.x, this.y, direction)
+      this.fireProjectile(this.x, this.y, direction, playerPos.x, playerPos.y)
     })
   }
 

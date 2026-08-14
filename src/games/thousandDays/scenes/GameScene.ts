@@ -18,10 +18,11 @@ import { stages } from '../config/stages'
 import { getStageIntroDurationMs } from '../config/timing'
 import { AudioKeys } from '../config/audioKeys'
 import { playBgm, playSfx, stopBgm, stopLoopingSfx, START_BGM_VOLUME } from '../../../config/audio'
-import { getDifficultySettings } from '../config/difficulty'
+import { getDifficulty, getDifficultySettings } from '../config/difficulty'
 import { getSelectedCharacter } from '../config/characters'
 
 const DAMAGE_INVINCIBILITY_MS = 1000
+const STAGE_SPAWN_GRACE_MS = 500
 const PATROL_EDGE_INSET = 40
 const CAPTURE_CHASE_SPEED = 700
 const STAGE_TRANSITION_DELAY_MS = 1500
@@ -202,10 +203,14 @@ export default class GameScene extends Phaser.Scene {
     this.restartKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
 
     this.isStageIntroActive = true
+    this.isPlayerInvincible = true
     this.physics.world.pause()
     this.time.delayedCall(getStageIntroDurationMs(stage.name), () => {
       this.isStageIntroActive = false
       this.physics.world.resume()
+      this.time.delayedCall(STAGE_SPAWN_GRACE_MS, () => {
+        this.isPlayerInvincible = false
+      })
     })
   }
 
@@ -588,7 +593,7 @@ export default class GameScene extends Phaser.Scene {
       getDifficultySettings().bossHp,
       () => ({ x: this.player.x, y: this.player.y }),
       () => this.spawnBossMinion(),
-      (x, y, direction) => this.fireBossProjectile(x, y, direction),
+      (x, y, direction, targetX, targetY) => this.fireBossProjectile(x, y, direction, targetX, targetY),
       () => this.startRainAttack(),
       () => this.handleBossDefeatStarted(),
       () => this.handleBossDefeated(),
@@ -636,7 +641,14 @@ export default class GameScene extends Phaser.Scene {
     this.enemyGroup.add(minion)
   }
 
-  private fireBossProjectile(x: number, _y: number, direction: -1 | 1) {
+  private fireBossProjectile(x: number, y: number, direction: -1 | 1, targetX: number, targetY: number) {
+    if (getDifficulty() === 'high') {
+      const projectile = new EnemyProjectile(this, x, y, direction, TextureKeys.BossProjectile, { x: targetX, y: targetY })
+      this.enemyProjectileGroup.add(projectile)
+      playSfx(this, AudioKeys.BossProjectile)
+      return
+    }
+
     const fireY = this.player.y >= GROUND_LEVEL_THRESHOLD_Y ? GROUND_LEVEL_FIRE_Y : TIER1_LEVEL_FIRE_Y
     const projectile = new EnemyProjectile(this, x, fireY, direction, TextureKeys.BossProjectile)
     this.enemyProjectileGroup.add(projectile)
