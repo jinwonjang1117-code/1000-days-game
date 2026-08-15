@@ -17,7 +17,15 @@
 // magnitude is an internal tuning value, not something the reveal promises.
 
 export type BoostItemId = 'speed' | 'fireRate' | 'damage' | 'projectileSpeed' | 'range' | 'size' | 'invincibility' | 'fart'
-export type StrongItemId = 'multiShot' | 'pierce' | 'homing' | 'multiDirection' | 'heartContainer'
+export type StrongItemId =
+  | 'multiShot'
+  | 'pierce'
+  | 'homing'
+  | 'multiDirection'
+  | 'heartContainer'
+  | 'heavyShot'
+  | 'buddy'
+  | 'orbitingShield'
 export type ItemId = BoostItemId | StrongItemId | 'heart'
 
 export interface PlayerStats {
@@ -34,6 +42,10 @@ export interface PlayerStats {
   hasPiercing: number
   hasHoming: number
   hasMultiDirection: number
+  /** Number of Buddy familiars following this player — GameSimulation keeps the live entity count in sync with this. */
+  buddyCount: number
+  /** Number of Orbiting Shields circling this player — GameSimulation keeps the live entity count in sync with this. */
+  shieldCount: number
 }
 
 export function createDefaultStats(): PlayerStats {
@@ -47,6 +59,8 @@ export function createDefaultStats(): PlayerStats {
     invincibilityBonusMs: 0,
     hasMultiShot: 0,
     hasPiercing: 0,
+    buddyCount: 0,
+    shieldCount: 0,
     hasHoming: 0,
     hasMultiDirection: 0,
   }
@@ -71,14 +85,14 @@ export const BOOST_ITEMS: Record<BoostItemId, ItemDefinition> = {
     label: '이동속도 상승',
     color: 0x66ddff,
     weight: 1,
-    apply: (stats) => ({ ...stats, moveSpeedMultiplier: stats.moveSpeedMultiplier * 1.15 }),
+    apply: (stats) => ({ ...stats, moveSpeedMultiplier: stats.moveSpeedMultiplier * 1.3 }),
   },
   fireRate: {
     id: 'fireRate',
     label: '공격속도 상승',
     color: 0xffcc44,
     weight: 1,
-    apply: (stats) => ({ ...stats, potatoFireRateMultiplier: stats.potatoFireRateMultiplier * 0.85 }),
+    apply: (stats) => ({ ...stats, potatoFireRateMultiplier: stats.potatoFireRateMultiplier * 0.7 }),
   },
   damage: {
     id: 'damage',
@@ -92,28 +106,28 @@ export const BOOST_ITEMS: Record<BoostItemId, ItemDefinition> = {
     label: '감자 속도 상승',
     color: 0xffee88,
     weight: 1,
-    apply: (stats) => ({ ...stats, potatoSpeedMultiplier: stats.potatoSpeedMultiplier * 1.15 }),
+    apply: (stats) => ({ ...stats, potatoSpeedMultiplier: stats.potatoSpeedMultiplier * 1.4 }),
   },
   range: {
     id: 'range',
     label: '사거리 상승',
     color: 0x88ff99,
     weight: 1,
-    apply: (stats) => ({ ...stats, potatoRangeMultiplier: stats.potatoRangeMultiplier * 1.2 }),
+    apply: (stats) => ({ ...stats, potatoRangeMultiplier: stats.potatoRangeMultiplier * 1.3 }),
   },
   size: {
     id: 'size',
     label: '감자 크기 상승',
     color: 0xcc99ff,
     weight: 0.75,
-    apply: (stats) => ({ ...stats, potatoSizeMultiplier: stats.potatoSizeMultiplier * 1.3 }),
+    apply: (stats) => ({ ...stats, potatoSizeMultiplier: stats.potatoSizeMultiplier * 1.4 }),
   },
   invincibility: {
     id: 'invincibility',
     label: '무적시간 상승',
     color: 0xffffff,
     weight: 0.5,
-    apply: (stats) => ({ ...stats, invincibilityBonusMs: stats.invincibilityBonusMs + 300 }),
+    apply: (stats) => ({ ...stats, invincibilityBonusMs: stats.invincibilityBonusMs + 400 }),
   },
   // No-op joke item — the whole point is you don't find out until you've
   // already grabbed it (see the mystery-pickup visual in ItemPickup.ts).
@@ -127,29 +141,39 @@ export const BOOST_ITEMS: Record<BoostItemId, ItemDefinition> = {
   },
 }
 
+// Every strong item defaults to weight 0.5 — half as likely per-entry as an
+// unweighted (1) boost item, now that golden/boss rooms draw both tiers
+// from one combined pool (randomRewardItemIds). Without this, a strong item
+// and a plain boost item would've been equally likely, which undersold the
+// "strong" tier's earned-reward feel. No individual strong item has a
+// reason to deviate from this yet, unlike the boost pool's per-item tuning.
 export const STRONG_ITEMS: Record<StrongItemId, ItemDefinition> = {
   multiShot: {
     id: 'multiShot',
     label: '멀티샷 (감자 추가 발사)',
     color: 0xff9933,
+    weight: 0.5,
     apply: (stats) => ({ ...stats, hasMultiShot: stats.hasMultiShot + 1 }),
   },
   pierce: {
     id: 'pierce',
     label: '관통샷 (감자가 적을 관통)',
     color: 0x33ffcc,
+    weight: 0.5,
     apply: (stats) => ({ ...stats, hasPiercing: stats.hasPiercing + 1 }),
   },
   homing: {
     id: 'homing',
     label: '유도샷 (발사체가 적을 추적)',
     color: 0xff66aa,
+    weight: 0.5,
     apply: (stats) => ({ ...stats, hasHoming: stats.hasHoming + 1 }),
   },
   multiDirection: {
     id: 'multiDirection',
     label: '다방향 발사 (여러 방향으로 발사)',
     color: 0x66ff88,
+    weight: 0.5,
     apply: (stats) => ({ ...stats, hasMultiDirection: stats.hasMultiDirection + 1 }),
   },
   // Not a PlayerStats mutator — like 'heart', its real effect (+2 max lives,
@@ -161,7 +185,39 @@ export const STRONG_ITEMS: Record<StrongItemId, ItemDefinition> = {
     id: 'heartContainer',
     label: '하트 컨테이너 (최대 생명력 +2)',
     color: 0xff3377,
+    weight: 0.5,
     apply: (stats) => stats,
+  },
+  heavyShot: {
+    id: 'heavyShot',
+    label: '헤비샷 (공격력·감자 크기 상승, 감자 속도 감소)',
+    color: 0xaa3311,
+    weight: 0.5,
+    apply: (stats) => ({
+      ...stats,
+      potatoDamage: stats.potatoDamage + 2,
+      potatoSizeMultiplier: stats.potatoSizeMultiplier * 1.4,
+      potatoSpeedMultiplier: stats.potatoSpeedMultiplier * 0.6,
+    }),
+  },
+  // buddyCount/shieldCount are just counters here — GameSimulation reads
+  // the new count and reconciles the live Buddy/OrbitingShield entity list
+  // to match it (spawning the newly-added one), same as how strong items'
+  // other stacking counts (hasMultiShot, etc.) don't spawn anything by
+  // themselves either.
+  buddy: {
+    id: 'buddy',
+    label: '버디 (나를 따라다니며 같이 발사, 데미지 고정)',
+    color: 0x33aaff,
+    weight: 0.5,
+    apply: (stats) => ({ ...stats, buddyCount: stats.buddyCount + 1 }),
+  },
+  orbitingShield: {
+    id: 'orbitingShield',
+    label: '오빗 실드 (나를 도는 방패, 닿으면 피해)',
+    color: 0x999999,
+    weight: 0.5,
+    apply: (stats) => ({ ...stats, shieldCount: stats.shieldCount + 1 }),
   },
 }
 
@@ -184,25 +240,19 @@ export function randomBoostItemId(): BoostItemId {
   return weightedRandomFromRecord(BOOST_ITEMS)
 }
 
-/** excludeIds keeps already-granted unique items out of the pool — see ItemDefinition.unique. */
-export function randomStrongItemId(excludeIds?: Set<string>): StrongItemId {
-  return weightedRandomFromRecord(STRONG_ITEMS, excludeIds)
-}
-
 /**
- * Draws `count` *distinct* strong items (no duplicates within one draw) —
- * golden/boss rooms use this so a co-op pair never has to compete for the
- * same pickup. Gracefully caps at however many eligible items remain if the
- * pool is smaller than `count` (not reachable at today's item count, but
- * shouldn't throw if it ever is).
+ * Draws `count` *distinct* ids from `record` (no duplicates within one
+ * draw) — golden/boss rooms use this so a co-op pair never has to compete
+ * for the same pickup. Gracefully caps at however many eligible items
+ * remain if the pool is smaller than `count`.
  */
-export function randomStrongItemIds(count: number, excludeIds?: Set<string>): StrongItemId[] {
+function distinctWeightedIds<T extends string>(record: Record<T, { weight?: number }>, count: number, excludeIds?: Set<string>): T[] {
   const drawn = new Set<string>(excludeIds)
-  const eligibleCount = STRONG_ITEM_IDS.length - drawn.size
-  const drawCount = Math.min(count, eligibleCount)
-  const result: StrongItemId[] = []
+  const allIds = Object.keys(record) as T[]
+  const drawCount = Math.min(count, allIds.length - drawn.size)
+  const result: T[] = []
   for (let i = 0; i < drawCount; i++) {
-    const id = weightedRandomFromRecord(STRONG_ITEMS, drawn)
+    const id = weightedRandomFromRecord(record, drawn)
     drawn.add(id)
     result.push(id)
   }
@@ -211,6 +261,17 @@ export function randomStrongItemIds(count: number, excludeIds?: Set<string>): St
 
 /** Combined lookup for wherever a stat-mutating item (anything but 'heart') is applied — see entities/Player.ts's applyItem. */
 export const STAT_ITEMS: Record<BoostItemId | StrongItemId, ItemDefinition> = { ...BOOST_ITEMS, ...STRONG_ITEMS }
+
+/**
+ * Golden/boss room reward roll (DESIGN.md §9) — draws from *both* tiers
+ * combined, not strong items only, so a guaranteed room can also hand out
+ * a (still mystery-rendered, since the pickup's visual keys off the item
+ * id being a StrongItemId or not — see ItemPickup.ts) boost item. excludeIds
+ * keeps already-granted unique items out of the pool — see ItemDefinition.unique.
+ */
+export function randomRewardItemIds(count: number, excludeIds?: Set<string>): (BoostItemId | StrongItemId)[] {
+  return distinctWeightedIds(STAT_ITEMS, count, excludeIds)
+}
 
 /** Boss-tier only — regular-tier pickups always render as the shared mystery look, never their real color. */
 export function getItemColor(id: StrongItemId): number {

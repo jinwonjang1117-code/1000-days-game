@@ -3,10 +3,39 @@ import type { Vec2 } from '../net/syncProtocol'
 
 // Exported so DevTestScene can compute a boosted player's actual shot
 // stats as base * multiplier without duplicating these base numbers.
-export const PROJECTILE_RADIUS = 5
-export const PROJECTILE_SPEED = 300
-export const PROJECTILE_MAX_RANGE = 300
+export const PROJECTILE_RADIUS = 6
+export const PROJECTILE_SPEED = 200
+export const PROJECTILE_MAX_RANGE = 200
 const PROJECTILE_COLOR = 0xffffcc
+/** Tint a fully-stacked Damage build eases toward — see projectileColorForDamage. */
+const HIGH_DAMAGE_COLOR = 0xff3311
+/** Bonus damage (above the base stat of 1) it takes to reach the fully-tinted color. Not a hard cap — potatoDamage can keep climbing past this, the color just stops changing. */
+const DAMAGE_TINT_RANGE = 3
+
+/**
+ * Eases a shot's color from the default pale yellow toward a hot red as
+ * the firing player's damage stat climbs — a free, at-a-glance "this hits
+ * harder" signal that doesn't need real art and doesn't collide with the
+ * Size boost's job of making shots visibly bigger (color and size stay
+ * two independent signals). Only meaningful for a shot whose damage
+ * actually reads the player's stat — Buddy's fixed-damage shot deliberately
+ * doesn't call this (see GameSimulation.spawnBuddyProjectile).
+ *
+ * Square-root eased rather than linear — the *first* Damage pickup should
+ * already read as a clear shift, not something you have to squint at, so
+ * the curve front-loads most of the color change into the first point or
+ * two and only tapers for the last stretch toward full red.
+ */
+export function projectileColorForDamage(damage: number): number {
+  const t = Math.sqrt(Phaser.Math.Clamp((damage - 1) / DAMAGE_TINT_RANGE, 0, 1))
+  const from = Phaser.Display.Color.IntegerToColor(PROJECTILE_COLOR)
+  const to = Phaser.Display.Color.IntegerToColor(HIGH_DAMAGE_COLOR)
+  return Phaser.Display.Color.GetColor(
+    Phaser.Math.Linear(from.red, to.red, t),
+    Phaser.Math.Linear(from.green, to.green, t),
+    Phaser.Math.Linear(from.blue, to.blue, t),
+  )
+}
 
 export interface ProjectileOptions {
   simulated: boolean
@@ -111,6 +140,11 @@ export default class Projectile {
   /** For the broadcast — the joiner needs this to render a Big Shot-boosted shot at the right size too. */
   get radius(): number {
     return this.shape.radius
+  }
+
+  /** For the broadcast — the joiner needs this to render a Damage-tinted shot with the right color too. */
+  get color(): number {
+    return this.shape.fillColor
   }
 
   isHoming(): boolean {

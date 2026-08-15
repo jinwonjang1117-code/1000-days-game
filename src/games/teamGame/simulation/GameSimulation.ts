@@ -1,13 +1,15 @@
 import Phaser from 'phaser'
 import type { KeyState, StateMessage, LevelStartMessage, Vec2 } from '../net/syncProtocol'
 import Player from '../entities/Player'
-import Projectile, { PROJECTILE_RADIUS, PROJECTILE_SPEED, PROJECTILE_MAX_RANGE } from '../entities/Projectile'
+import Projectile, { PROJECTILE_RADIUS, PROJECTILE_SPEED, PROJECTILE_MAX_RANGE, projectileColorForDamage } from '../entities/Projectile'
 import Enemy from '../entities/Enemy'
 import ItemPickup from '../entities/ItemPickup'
+import Buddy from '../entities/Buddy'
+import OrbitingShield from '../entities/OrbitingShield'
 import type { EnemyArchetype } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import type { ItemId } from '../gameplay/items'
-import { getItemLabel, randomBoostItemId, randomStrongItemIds, STAT_ITEMS } from '../gameplay/items'
+import { getItemLabel, randomBoostItemId, randomRewardItemIds, STAT_ITEMS } from '../gameplay/items'
 import { bonusContainersForLevel } from '../gameplay/lives'
 import type { Direction, RoomCoord, RoomDefinition } from '../rooms/floorLayout'
 import { ALL_DIRECTIONS, getRoomDefinition, getNeighborCoord, hasNeighbor, oppositeDirection, coordsEqual } from '../rooms/floorLayout'
@@ -100,10 +102,18 @@ const SPLIT_SPAWN_OFFSET = 20
 /** Room-clear rewards (DESIGN.md §7, boost/life tier now; role items/holdables wait on the role system). */
 const REGULAR_REWARD_SPACING = 50
 const LIFE_ITEM_CHANCE = 0.15
-/** Global chance that a non-boss room drops a boost on clear. Tweakable. */
-const ROOM_DROP_CHANCE = 0.7
+/** Global chance that a non-boss room drops a boost on clear — made deliberately rare since boost effects got a magnitude bump (items.ts) and golden/boss rooms now include boost items in their own guaranteed roll too. Tweakable. */
+const ROOM_DROP_CHANCE = 0.3
 /** Extra shots fired in a spread when a player has picked up Multi Shot, in addition to the center shot. */
 const MULTI_SHOT_SPREAD_RADIANS = Phaser.Math.DegToRad(15)
+
+/** Buddy's shot is fixed, deliberately not reading the owning player's stats (DESIGN.md's composability tenet calls this out explicitly as the one exception). */
+const BUDDY_PROJECTILE_RADIUS = 3
+const BUDDY_PROJECTILE_DAMAGE = 1
+const BUDDY_COLOR = 0x33aaff
+/** Radians/sec — shared by every shield on a player so a stack stays evenly spaced while it rotates. */
+const SHIELD_ANGULAR_SPEED = 1.5
+const SHIELD_ORBIT_RADIUS = 50
 
 /**
  * The read-only shape any UI layer needs to draw doors/minimap/level
@@ -119,6 +129,18 @@ export interface RoomUiState {
   readonly exploredRooms: RoomCoord[]
   readonly isGameOver: boolean
   readonly isPaused: boolean
+  /**
+   * "Own"/"partner" are perspective-relative, not host/joiner-relative —
+   * whichever implementer this is, `own` is always the player controlled
+   * from *this* screen (GameSimulation only ever runs on the host's own
+   * machine, so `own` is hostPlayer there; DevTestScene's joiner-role
+   * self-implementation is only ever used on the joiner's own screen, so
+   * `own` is joinerPlayer there). `partner` is null in solo (no joiner).
+   */
+  readonly ownLives: number
+  readonly ownMaxLives: number
+  readonly partnerLives: number | null
+  readonly partnerMaxLives: number | null
   isCurrentRoomBoss(): boolean
   isRoomClear(): boolean
   isDirectionOpen(direction: Direction): boolean
@@ -165,6 +187,13 @@ export default class GameSimulation implements RoomUiState {
   /** Rooms whose enemies have already been cleared once — loadRoom skips (re)spawning enemies for these. */
   private clearedRooms: RoomCoord[] = []
   /**
+   * Uncollected item pickups, snapshotted per room on exit so they're still
+   * there on a return visit instead of despawning like projectiles do.
+   * Keyed by coordKey(coord); reset per level in startLevel() alongside
+   * clearedRooms, since a fresh floor has none of this level's history.
+   */
+  private persistedItemPickups: Map<string, { itemId: ItemId; x: number; y: number }[]> = new Map()
+  /**
    * True only during the exact frame trackRoomCleared() detects a fresh
    * clear — checkRoomTransition holds off for that one frame so a
    * just-spawned reward can't be destroyed (via a door/hole transition)
@@ -193,6 +222,16 @@ export default class GameSimulation implements RoomUiState {
   private nextItemPickupId = 0
   /** Run-wide, not per-player — a `unique` item (see items.ts) is excluded from future strong-item rolls once anyone has gotten it. No item sets `unique` yet, so this has no visible effect today. */
   private grantedUniqueItems: Set<ItemId> = new Set()
+
+  // Buddy/Orbiting Shield (DESIGN.md §7) — unlike rooms/enemies/projectiles,
+  // these persist across room transitions (they follow the player, not the
+  // room), so they live at the top level, not inside loadRoom's teardown.
+  private hostBuddies: Buddy[] = []
+  private joinerBuddies: Buddy[] = []
+  private nextBuddyId = 0
+  private hostShields: OrbitingShield[] = []
+  private joinerShields: OrbitingShield[] = []
+  private nextShieldId = 0
 
   private gameOver = false
   private paused = false
@@ -250,6 +289,23 @@ export default class GameSimulation implements RoomUiState {
 
   get isPaused(): boolean {
     return this.paused
+  }
+
+  /** GameSimulation only ever runs on the host's own machine (solo or co-op host role) — "own" is always hostPlayer here. */
+  get ownLives(): number {
+    return this.hostPlayer.getLives()
+  }
+
+  get ownMaxLives(): number {
+    return this.hostPlayer.getMaxLives()
+  }
+
+  get partnerLives(): number | null {
+    return this.joinerPlayer ? this.joinerPlayer.getLives() : null
+  }
+
+  get partnerMaxLives(): number | null {
+    return this.joinerPlayer ? this.joinerPlayer.getMaxLives() : null
   }
 
   isCurrentRoomBoss(): boolean {
@@ -348,8 +404,74 @@ export default class GameSimulation implements RoomUiState {
       }
     })
 
+    this.updateBuddies(this.hostPlayer, this.hostBuddies)
+    if (this.joinerPlayer) this.updateBuddies(this.joinerPlayer, this.joinerBuddies)
+    this.updateShields(this.hostPlayer, this.hostShields, now)
+    if (this.joinerPlayer) this.updateShields(this.joinerPlayer, this.joinerShields, now)
+
     this.trackRoomCleared()
     this.checkRoomTransition()
+  }
+
+  // ---- Buddy / Orbiting Shield ----
+
+  /** Chain-follow: the first Buddy trails the player, each subsequent one trails the previous — an Isaac-style trailing line rather than everyone independently chasing the player. */
+  private updateBuddies(player: Player, buddies: Buddy[]) {
+    let targetX = player.x
+    let targetY = player.y
+    for (const buddy of buddies) {
+      buddy.followTarget(targetX, targetY)
+      targetX = buddy.x
+      targetY = buddy.y
+    }
+  }
+
+  /** Evenly spaces however many shields this player has around a rotating orbit. */
+  private updateShields(player: Player, shields: OrbitingShield[], now: number) {
+    if (shields.length === 0) {
+      return
+    }
+    const baseAngle = (now / 1000) * SHIELD_ANGULAR_SPEED
+    shields.forEach((shield, index) => {
+      const angle = baseAngle + (index / shields.length) * Math.PI * 2
+      shield.orbitTo(player.x + Math.cos(angle) * SHIELD_ORBIT_RADIUS, player.y + Math.sin(angle) * SHIELD_ORBIT_RADIUS)
+    })
+  }
+
+  /** New Buddy for whichever player picked it up — mirrors an existing count on PlayerStats (buddyCount), so no separate "how many should exist" reconciliation is needed. */
+  private spawnBuddy(player: Player) {
+    const buddies = player === this.hostPlayer ? this.hostBuddies : this.joinerBuddies
+    const id = this.nextBuddyId++
+    buddies.push(new Buddy(this.scene, id, player.x, player.y, { simulated: true, color: BUDDY_COLOR }))
+  }
+
+  /** New Orbiting Shield for whichever player picked it up. Wires overlap against every enemy currently in the room, the same way a freshly-fired projectile does — colliders are stored on the *enemy's* own collider array (roomEnemyColliders) so room-transition teardown cleans them up automatically without a separate map. */
+  private spawnShield(player: Player) {
+    const shields = player === this.hostPlayer ? this.hostShields : this.joinerShields
+    const id = this.nextShieldId++
+    const shield = new OrbitingShield(this.scene, id, player.x, player.y, { simulated: true })
+    shields.push(shield)
+
+    this.roomEnemies.forEach((enemy, enemyId) => {
+      const collider = this.scene.physics.add.overlap(shield.shape, enemy.square, () => {
+        this.handleShieldHitEnemy(shield, enemyId, player)
+      })
+      this.roomEnemyColliders.get(enemyId)?.push(collider)
+    })
+  }
+
+  /** Contact damage, throttled per (shield, enemy) pair — Arcade overlap fires every frame two bodies are touching, not once, so an untethered cooldown would melt anything standing in a shield's orbit path in a single frame. */
+  private handleShieldHitEnemy(shield: OrbitingShield, enemyId: number, owner: Player) {
+    const enemy = this.roomEnemies.get(enemyId)
+    const now = this.scene.time.now
+    if (!enemy || !shield.canHitEnemy(enemyId, now)) {
+      return
+    }
+    shield.recordHit(enemyId, now)
+    const died = enemy.applyHit(owner.getStats().potatoDamage)
+    if (died) {
+      this.resolveEnemyDeath(enemyId, enemy)
+    }
   }
 
   /** Co-op host only: apply the joiner's latest reported input. Movement applies immediately; fire is buffered for the next tick's cooldown check, same as before. */
@@ -387,6 +509,12 @@ export default class GameSimulation implements RoomUiState {
       player.applyItem(itemId)
     }
 
+    if (itemId === 'buddy') {
+      this.spawnBuddy(player)
+    } else if (itemId === 'orbitingShield') {
+      this.spawnShield(player)
+    }
+
     if (itemId !== 'heart' && STAT_ITEMS[itemId].unique) {
       this.grantedUniqueItems.add(itemId)
     }
@@ -399,13 +527,14 @@ export default class GameSimulation implements RoomUiState {
       host: this.hostPlayer.getNetworkState(now),
       joiner: this.joinerPlayer
         ? this.joinerPlayer.getNetworkState(now)
-        : { pos: { x: 0, y: 0 }, lives: 0, isOut: true, isInvincible: false },
+        : { pos: { x: 0, y: 0 }, lives: 0, maxLives: 0, isOut: true, isInvincible: false },
       roomCoord: this.roomCoord,
       enemies: Array.from(this.roomEnemies.values()).map((enemy) => enemy.getNetworkState()),
       projectiles: Array.from(this.projectiles.entries()).map(([id, projectile]) => ({
         id,
         pos: { x: projectile.x, y: projectile.y },
         radius: projectile.radius,
+        color: projectile.color,
       })),
       enemyProjectiles: Array.from(this.enemyProjectiles.entries()).map(([id, projectile]) => ({
         id,
@@ -417,6 +546,14 @@ export default class GameSimulation implements RoomUiState {
         id: pickup.id,
         itemId: pickup.itemId,
         pos: { x: pickup.x, y: pickup.y },
+      })),
+      buddies: [...this.hostBuddies, ...this.joinerBuddies].map((buddy) => ({
+        id: buddy.id,
+        pos: { x: buddy.x, y: buddy.y },
+      })),
+      shields: [...this.hostShields, ...this.joinerShields].map((shield) => ({
+        id: shield.id,
+        pos: { x: shield.x, y: shield.y },
       })),
       isGameOver: this.gameOver,
       isPaused: this.paused,
@@ -443,6 +580,14 @@ export default class GameSimulation implements RoomUiState {
     this.roomEnemyColliders.clear()
     this.roomEnemies.forEach((enemy) => enemy.destroy())
     this.roomEnemies.clear()
+    this.hostBuddies.forEach((buddy) => buddy.destroy())
+    this.hostBuddies = []
+    this.joinerBuddies.forEach((buddy) => buddy.destroy())
+    this.joinerBuddies = []
+    this.hostShields.forEach((shield) => shield.destroy())
+    this.hostShields = []
+    this.joinerShields.forEach((shield) => shield.destroy())
+    this.joinerShields = []
   }
 
   // ---- Movement / firing ----
@@ -514,6 +659,17 @@ export default class GameSimulation implements RoomUiState {
     }
 
     for (const a of anglesSet) this.spawnProjectile(player, a)
+
+    // Buddy mirrors the player's raw facing, not the Multi Shot/Multi
+    // Direction-expanded angle set — deliberately kept simple for this
+    // first pass (fixed single shot per buddy per player-fire) rather than
+    // composing with those stacks. Flagged, not silent: revisit against
+    // the composability tenet (DESIGN.md, top of file) before calling
+    // Buddy "done."
+    const buddies = player === this.hostPlayer ? this.hostBuddies : this.joinerBuddies
+    for (const buddy of buddies) {
+      this.spawnBuddyProjectile(buddy.x, buddy.y, facing)
+    }
   }
 
   // ---- Rooms ----
@@ -609,6 +765,7 @@ export default class GameSimulation implements RoomUiState {
     }))
     this.explored = [this.currentFloor.startCoord]
     this.clearedRooms = []
+    this.persistedItemPickups.clear()
 
     // No-ops for a player who wasn't out — safe to call every level start,
     // including the very first one.
@@ -650,7 +807,19 @@ export default class GameSimulation implements RoomUiState {
     this.enemyProjectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
     this.enemyProjectileColliders.clear()
 
-    // Uncollected pickups don't carry through a door either — same reasoning as projectiles.
+    // Unlike projectiles, uncollected pickups DO carry through a door —
+    // snapshot whatever's still sitting in the room we're leaving before
+    // tearing down its visuals/colliders, so a return visit can respawn them.
+    const leftRoomPickups = Array.from(this.itemPickups.values()).map((pickup) => ({
+      itemId: pickup.itemId,
+      x: pickup.x,
+      y: pickup.y,
+    }))
+    if (leftRoomPickups.length > 0) {
+      this.persistedItemPickups.set(this.coordKey(this.roomCoord), leftRoomPickups)
+    } else {
+      this.persistedItemPickups.delete(this.coordKey(this.roomCoord))
+    }
     this.itemPickups.forEach((pickup) => pickup.destroy())
     this.itemPickups.clear()
     this.itemPickupColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
@@ -673,6 +842,19 @@ export default class GameSimulation implements RoomUiState {
       this.spawnRoomEnemies(room)
     }
     this.trackRoomCleared()
+
+    // Restore whatever was left behind on a previous visit — taken out of
+    // the persisted map since the live itemPickups map is the source of
+    // truth again from here until the room is next exited.
+    const restored = this.persistedItemPickups.get(this.coordKey(coord))
+    if (restored) {
+      this.persistedItemPickups.delete(this.coordKey(coord))
+      restored.forEach(({ itemId, x, y }) => this.spawnItemPickup(itemId, x, y))
+    }
+  }
+
+  private coordKey(coord: RoomCoord): string {
+    return `${coord.x},${coord.y}`
   }
 
   // ---- Enemies ----
@@ -719,6 +901,23 @@ export default class GameSimulation implements RoomUiState {
       colliders.push(collider)
       this.projectileColliders.get(projectileId)?.push(collider)
     })
+
+    // Same reasoning, extended to Orbiting Shields: unlike projectiles they
+    // persist across rooms, so a shield that existed before this enemy
+    // spawned still needs a fresh overlap wired up against it.
+    const shieldGroups: [Player, OrbitingShield[]][] = [[hostPlayer, this.hostShields]]
+    if (joinerPlayer) {
+      shieldGroups.push([joinerPlayer, this.joinerShields])
+    }
+    for (const [owner, shields] of shieldGroups) {
+      for (const shield of shields) {
+        colliders.push(
+          this.scene.physics.add.overlap(shield.shape, enemy.square, () => {
+            this.handleShieldHitEnemy(shield, id, owner)
+          }),
+        )
+      }
+    }
 
     this.roomEnemyColliders.set(id, colliders)
   }
@@ -769,11 +968,14 @@ export default class GameSimulation implements RoomUiState {
       return
     }
 
-    // Boss and golden rooms drop 2 *distinct* strong items side by side —
-    // in co-op each player can grab a different one; solo, both are
-    // available to the one player.
+    // Boss and golden rooms drop 2 *distinct* items side by side, drawn
+    // from strong items AND boost items combined (still gets the tier's
+    // real visual — a boost item still renders as the regular mystery "?"
+    // look, see ItemPickup.ts — but the drop itself is guaranteed, not
+    // gated by ROOM_DROP_CHANCE). In co-op each player can grab a
+    // different one; solo, both are available to the one player.
     if (this.isCurrentRoomBoss()) {
-      const [firstId, secondId] = randomStrongItemIds(2, this.grantedUniqueItems)
+      const [firstId, secondId] = randomRewardItemIds(2, this.grantedUniqueItems)
       this.spawnItemPickup(firstId, BOSS_HOLE_CENTER.x - REGULAR_REWARD_SPACING / 2, BOSS_HOLE_CENTER.y - REGULAR_REWARD_SPACING)
       if (secondId) {
         this.spawnItemPickup(secondId, BOSS_HOLE_CENTER.x + REGULAR_REWARD_SPACING / 2, BOSS_HOLE_CENTER.y - REGULAR_REWARD_SPACING)
@@ -781,10 +983,10 @@ export default class GameSimulation implements RoomUiState {
       return
     }
 
-    // No fight, no regular boost/heart pool — a golden room is a
-    // guaranteed strong-item drop and nothing else.
+    // No fight, no LIFE_ITEM_CHANCE roll — a golden room is 2 guaranteed
+    // reward items and nothing else.
     if (this.isCurrentRoomGolden()) {
-      const [firstId, secondId] = randomStrongItemIds(2, this.grantedUniqueItems)
+      const [firstId, secondId] = randomRewardItemIds(2, this.grantedUniqueItems)
       this.spawnItemPickup(firstId, ENEMY_SPAWN_CENTER.x - REGULAR_REWARD_SPACING / 2, ENEMY_SPAWN_CENTER.y)
       if (secondId) {
         this.spawnItemPickup(secondId, ENEMY_SPAWN_CENTER.x + REGULAR_REWARD_SPACING / 2, ENEMY_SPAWN_CENTER.y)
@@ -858,6 +1060,28 @@ export default class GameSimulation implements RoomUiState {
       range: PROJECTILE_MAX_RANGE * stats.potatoRangeMultiplier,
       pierceCount: stats.hasPiercing,
       homingStrength: stats.hasHoming,
+      color: projectileColorForDamage(stats.potatoDamage),
+    })
+    this.projectiles.set(id, projectile)
+
+    const colliders: Phaser.Physics.Arcade.Collider[] = []
+    this.roomEnemies.forEach((enemy, enemyId) => {
+      colliders.push(
+        this.scene.physics.add.overlap(projectile.shape, enemy.square, () => {
+          this.handleProjectileHitEnemy(id, enemyId)
+        }),
+      )
+    })
+    this.projectileColliders.set(id, colliders)
+  }
+
+  /** Buddy's shot — fixed size/damage, deliberately not reading the owning player's stats (see the note in tryFirePlayer). Shares the same projectiles/projectileColliders maps as a normal shot, so it gets pierce-fix collider registration against newly-spawned enemies, room-transition cleanup, and broadcast for free. */
+  private spawnBuddyProjectile(x: number, y: number, angle: number) {
+    const id = this.nextProjectileId++
+    const projectile = new Projectile(this.scene, id, x, y, angle, {
+      simulated: true,
+      damage: BUDDY_PROJECTILE_DAMAGE,
+      radius: BUDDY_PROJECTILE_RADIUS,
     })
     this.projectiles.set(id, projectile)
 

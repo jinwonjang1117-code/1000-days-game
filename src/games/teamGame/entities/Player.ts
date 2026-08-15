@@ -18,14 +18,7 @@ import { createDefaultStats, STAT_ITEMS } from '../gameplay/items'
 import type { KeyState, PlayerState, Vec2 } from '../net/syncProtocol'
 
 const PLAYER_SIZE = 40
-const LIFE_TEXT_OFFSET = 34
 const GRAY_OUT_ALPHA = 0.3
-
-const LIFE_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
-  fontFamily: 'monospace',
-  fontSize: '14px',
-  color: '#ff6688',
-}
 
 export interface PlayerOptions {
   /** Host owns its own LifeState and an Arcade body it moves directly. */
@@ -44,7 +37,6 @@ export interface PlayerOptions {
  */
 export default class Player {
   readonly square: Phaser.GameObjects.Rectangle
-  private readonly lifeText: Phaser.GameObjects.Text
   private readonly flicker: FlickerController
   private readonly body: Phaser.Physics.Arcade.Body | null
 
@@ -70,7 +62,6 @@ export default class Player {
       this.body = null
     }
 
-    this.lifeText = scene.add.text(x, y - LIFE_TEXT_OFFSET, '', LIFE_TEXT_STYLE).setOrigin(0.5)
     this.flicker = createFlickerController(scene, this.square)
   }
 
@@ -84,6 +75,15 @@ export default class Player {
 
   get isOut(): boolean {
     return this.lifeState.isOut
+  }
+
+  /** Current lives / heart-container cap — kept in sync for a render-only player too (see applyReceivedState), so a HUD can read either kind of Player the same way. */
+  getLives(): number {
+    return this.lifeState.lives
+  }
+
+  getMaxLives(): number {
+    return this.lifeState.maxLives
   }
 
   // ---- Simulated (host) ----
@@ -167,6 +167,7 @@ export default class Player {
     return {
       pos: { x: this.square.x, y: this.square.y },
       lives: this.lifeState.lives,
+      maxLives: this.lifeState.maxLives,
       isOut: this.lifeState.isOut,
       isInvincible: isLifeStateInvincible(this.lifeState, now),
     }
@@ -174,7 +175,7 @@ export default class Player {
 
   /** Call every frame — invincibility can expire without any event to trigger a refresh. */
   refreshVisuals(now: number) {
-    this.renderLifeVisuals(this.lifeState.lives, this.lifeState.isOut, isLifeStateInvincible(this.lifeState, now))
+    this.renderLifeVisuals(this.lifeState.isOut, isLifeStateInvincible(this.lifeState, now))
   }
 
   // ---- Render-only (joiner) ----
@@ -184,7 +185,11 @@ export default class Player {
       this.square.setPosition(state.pos.x, state.pos.y)
     }
     this.target = state.pos
-    this.renderLifeVisuals(state.lives, state.isOut, state.isInvincible)
+    // Not otherwise touched on this side (applyHit/grantLife etc. are
+    // simulated-only) — just mirrored so getLives()/getMaxLives() work the
+    // same way regardless of which side of the split a Player is on.
+    this.lifeState = { ...this.lifeState, lives: state.lives, maxLives: state.maxLives, isOut: state.isOut }
+    this.renderLifeVisuals(state.isOut, state.isInvincible)
   }
 
   /**
@@ -204,15 +209,11 @@ export default class Player {
     }
     this.square.x = Phaser.Math.Linear(this.square.x, this.target.x, t)
     this.square.y = Phaser.Math.Linear(this.square.y, this.target.y, t)
-    this.lifeText.setPosition(this.square.x, this.square.y - LIFE_TEXT_OFFSET)
   }
 
   // ---- Shared ----
 
-  private renderLifeVisuals(lives: number, isOut: boolean, invincible: boolean) {
-    this.lifeText.setPosition(this.square.x, this.square.y - LIFE_TEXT_OFFSET)
-    this.lifeText.setText(`❤️ ${Math.max(0, lives)}`)
-
+  private renderLifeVisuals(isOut: boolean, invincible: boolean) {
     if (isOut) {
       this.flicker.setActive(false)
       this.square.setAlpha(GRAY_OUT_ALPHA)
@@ -227,6 +228,5 @@ export default class Player {
 
   destroy() {
     this.square.destroy()
-    this.lifeText.destroy()
   }
 }

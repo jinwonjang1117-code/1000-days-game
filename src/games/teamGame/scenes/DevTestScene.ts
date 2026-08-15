@@ -11,12 +11,15 @@ import type {
   ProjectileState,
   EnemyState,
   ItemPickupState,
+  FollowerState,
 } from '../net/syncProtocol'
 import { isInputMessage, isPauseToggleMessage, isLevelStartMessage, isStateMessage } from '../net/syncProtocol'
 import Player from '../entities/Player'
 import Projectile from '../entities/Projectile'
 import Enemy from '../entities/Enemy'
 import ItemPickup from '../entities/ItemPickup'
+import Buddy from '../entities/Buddy'
+import OrbitingShield from '../entities/OrbitingShield'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import { getItemLabel } from '../gameplay/items'
 import type { Direction, RoomCoord } from '../rooms/floorLayout'
@@ -43,6 +46,8 @@ const HOST_START = { x: 300, y: 320 }
 const JOINER_START = { x: 500, y: 320 }
 const EMPTY_KEYS: KeyState = { up: false, down: false, left: false, right: false }
 const ENEMY_PROJECTILE_COLOR = 0xff3366
+/** Matches gameplay/items.ts's 'buddy' strong item color — joiner-side Buddy render, since the entity itself doesn't know its own item color. */
+const BUDDY_COLOR = 0x33aaff
 
 const ORIGIN_COORD: RoomCoord = { x: 0, y: 0 }
 
@@ -91,6 +96,8 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
   private projectiles: Map<number, Projectile> = new Map()
   private enemyProjectiles: Map<number, Projectile> = new Map()
   private itemPickups: Map<number, ItemPickup> = new Map()
+  private buddies: Map<number, Buddy> = new Map()
+  private shields: Map<number, OrbitingShield> = new Map()
 
   private lastSentKeys: KeyState = EMPTY_KEYS
   private lastSentFire = false
@@ -128,6 +135,10 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
     this.enemyProjectiles.clear()
     this.itemPickups.forEach((pickup) => pickup.destroy())
     this.itemPickups.clear()
+    this.buddies.forEach((buddy) => buddy.destroy())
+    this.buddies.clear()
+    this.shields.forEach((shield) => shield.destroy())
+    this.shields.clear()
     this.currentRoomCoord = ORIGIN_COORD
     this.currentLevel = 1
     this.floorRoomEntries = []
@@ -160,6 +171,10 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
       this.enemyProjectiles.clear()
       this.itemPickups.forEach((pickup) => pickup.destroy())
       this.itemPickups.clear()
+      this.buddies.forEach((buddy) => buddy.destroy())
+      this.buddies.clear()
+      this.shields.forEach((shield) => shield.destroy())
+      this.shields.clear()
     })
 
     const connection = getConnection()
@@ -232,6 +247,8 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
       this.roomEnemies.forEach((enemy) => enemy.interpolate(t))
       this.projectiles.forEach((projectile) => projectile.interpolate(t))
       this.enemyProjectiles.forEach((projectile) => projectile.interpolate(t))
+      this.buddies.forEach((buddy) => buddy.interpolate(t))
+      this.shields.forEach((shield) => shield.interpolate(t))
     }
 
     const currentKeys: KeyState = {
@@ -264,6 +281,23 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
   }
 
   // ---- RoomUiState (joiner role only — host role uses GameSimulation's own implementation instead) ----
+
+  /** This implementation of RoomUiState is only ever read for the joiner role — "own" is always joinerPlayer (the joiner's own controlled square), "partner" the host's. */
+  get ownLives(): number {
+    return this.joinerPlayer?.getLives() ?? 0
+  }
+
+  get ownMaxLives(): number {
+    return this.joinerPlayer?.getMaxLives() ?? 0
+  }
+
+  get partnerLives(): number | null {
+    return this.hostPlayer?.getLives() ?? null
+  }
+
+  get partnerMaxLives(): number | null {
+    return this.hostPlayer?.getMaxLives() ?? null
+  }
 
   isCurrentRoomBoss(): boolean {
     return getRoomDefinition(this.floorRoomEntries, this.currentRoomCoord)?.isBoss ?? false
@@ -397,6 +431,8 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
       this.reconcileProjectiles(data.projectiles)
       this.reconcileEnemyProjectiles(data.enemyProjectiles)
       this.reconcileItemPickups(data.itemPickups)
+      this.reconcileBuddies(data.buddies)
+      this.reconcileShields(data.shields)
       this.exploredRooms = data.exploredRooms
 
       this.isGameOver = data.isGameOver
@@ -453,6 +489,7 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
         projectile = new Projectile(this, state.id, state.pos.x, state.pos.y, 0, {
           simulated: false,
           radius: state.radius,
+          color: state.color,
         })
         this.projectiles.set(state.id, projectile)
       }
@@ -515,6 +552,48 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
           new ItemPickup(this, state.id, state.itemId, state.pos.x, state.pos.y, { simulated: false }),
         )
       }
+    }
+  }
+
+  /** Joiner-only: same reconciliation as reconcileProjectiles — Buddies persist across rooms host-side, but this side just tracks whatever ids are currently reported. */
+  private reconcileBuddies(received: FollowerState[]) {
+    const receivedIds = new Set(received.map((buddy) => buddy.id))
+
+    for (const [id, buddy] of this.buddies) {
+      if (!receivedIds.has(id)) {
+        buddy.destroy()
+        this.buddies.delete(id)
+      }
+    }
+
+    for (const state of received) {
+      let buddy = this.buddies.get(state.id)
+      if (!buddy) {
+        buddy = new Buddy(this, state.id, state.pos.x, state.pos.y, { simulated: false, color: BUDDY_COLOR })
+        this.buddies.set(state.id, buddy)
+      }
+      buddy.applyReceivedState(state.pos)
+    }
+  }
+
+  /** Joiner-only: same reconciliation as reconcileBuddies, mirrored for Orbiting Shields. */
+  private reconcileShields(received: FollowerState[]) {
+    const receivedIds = new Set(received.map((shield) => shield.id))
+
+    for (const [id, shield] of this.shields) {
+      if (!receivedIds.has(id)) {
+        shield.destroy()
+        this.shields.delete(id)
+      }
+    }
+
+    for (const state of received) {
+      let shield = this.shields.get(state.id)
+      if (!shield) {
+        shield = new OrbitingShield(this, state.id, state.pos.x, state.pos.y, { simulated: false })
+        this.shields.set(state.id, shield)
+      }
+      shield.applyReceivedState(state.pos)
     }
   }
 }

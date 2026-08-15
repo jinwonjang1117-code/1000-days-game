@@ -111,15 +111,15 @@ Not every one of the 21 possible role pairs needs a bespoke effect — a handful
 Regular pickups, a stackable strong-item pool, a single-equip role slot, and a separate holdable slot:
 
 1. **Default attack** — baseline, always present, not randomized.
-2. **Boost items** — role-agnostic stat ups (attack speed, move speed, damage, projectile count, range, etc.) plus role-specific modifiers (e.g. "+15% freeze chance") living in this same tier. Regular room-clear reward.
+2. **Boost items** — role-agnostic stat ups (attack speed, move speed, damage, projectile count, range, etc.) plus role-specific modifiers (e.g. "+15% freeze chance") living in this same tier. Regular room-clear reward, deliberately rare on a normal clear (a low drop-chance roll, see build status) now that their per-pickup effect is a bit stronger than the original tuning — also part of the golden/boss room pool (below), where they're guaranteed instead of a coin-flip.
 3. **Holdable item** — a **single equip slot** (not a stacking collection). Picking up a new holdable while the slot is full **auto-swaps and drops the old one on the ground** (teammate can pick up the discard if it suits their role). Drops randomly in regular rooms, same frequency class as other consumables — not mini-boss-exclusive.
 4. **Life items** — rare, random chance on room-clear (not scheduled). Grants +1 life, capped at max (§3).
-5. **Strong items** — a stackable pool, sourced from golden-room and boss-room drops (never the regular pool). Each has a `weight` (rarer ones roll less often) and a `unique` flag: most stack freely (pick up Multi Shot twice, it compounds), a handful are capped at one per run. Current roster:
+5. **Strong items** — a stackable pool sourced from golden-room and boss-room drops. Those rooms draw **2 distinct items** from a combined pool of strong items *and* boost items (never `heart`, and never gated by the regular pool's drop-chance roll) — a boost item found this way still renders with its normal mystery "?" look, only strong items are visually identified on the ground. Each strong item has a `weight` (rarer ones roll less often) and a `unique` flag: most stack freely (pick up Multi Shot twice, it compounds), a handful are capped at one per run. Current roster:
    - **Multi Shot** — extra projectiles per attack (stacks)
    - **Pierce** — a shot survives passing through an extra enemy (stacks)
    - **Homing** — shots steer toward the nearest enemy (stacks)
    - **Multi Direction** — fire in more directions at once (stacks)
-   - **Heavy Shot** — big damage up, projectile speed down a lot (stacks) — strong vs. slow/tanky archetypes, weak vs. anything that just walks around a slow shot
+   - **Heavy Shot** — big damage up, projectile size up, projectile speed down a lot (stacks) — strong vs. slow/tanky archetypes, weak vs. anything that just walks around a slow shot
    - **Buddy** (stacks) — a familiar that trails/follows the player Isaac-style and fires whenever you do, mirroring your aim direction. Small fixed projectile size, and its damage does **not** scale with the owning player's stats (flat, so it doesn't just become a second copy of whatever you've built) — collecting several stacks up to multiple buddies
    - **Orbiting Shield** (stacks) — a shield that circles the player and **damages enemies on contact**; multiple stacks add more shields circling at once, Isaac-orbital-style
    - **Heart Container** (stacks) — +2 max lives, fills the new capacity immediately (§3)
@@ -187,7 +187,7 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
 ### Golden Room (settled)
 
 - **One per level**, no fight — the room simply has no enemies, so it reads as instantly "cleared."
-- Guaranteed drop: one random strong item or role item (§7) — never the regular boost/heart pool, and never gated by the regular pool's drop-chance roll.
+- Guaranteed drop: **2 distinct items**, drawn from strong items *and* boost items combined (or role items too, once those exist, §7) — never `heart`, and never gated by the regular pool's drop-chance roll. Boss rooms drop the same way.
 - Doors behave like any other non-boss room (no special hole/portal) — finding it doesn't end the level, it's just a room on the path that happens to be a sure thing instead of a fight.
 
 ### Devil's Room (settled)

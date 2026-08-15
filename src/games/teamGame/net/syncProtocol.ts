@@ -58,6 +58,8 @@ export interface ProjectileState {
   pos: Vec2
   /** Only present when a shot's radius differs from the default (Big Shot) — the joiner needs this to render it at the right size too. */
   radius?: number
+  /** Only present for player shots whose color is damage-tinted (see entities/Projectile.ts's projectileColorForDamage) — enemy shots and Buddy's fixed shot always use their own fixed defaults, so this is omitted for those. */
+  color?: number
 }
 
 /** One active room-clear reward pickup, sitting still on the ground until someone walks over it. */
@@ -77,6 +79,18 @@ export interface EnemyState {
 }
 
 /**
+ * One Buddy familiar or Orbiting Shield (DESIGN.md §7's stackable strong
+ * items) — just an id + position, unlike EnemyState/ProjectileState there's
+ * no other state to mirror (no health, always the same visual). Persists
+ * across room transitions (they follow the player, not the room), unlike
+ * everything else broadcast alongside it.
+ */
+export interface FollowerState {
+  id: number
+  pos: Vec2
+}
+
+/**
  * Per-player snapshot broadcast each tick. Nested (rather than flattened
  * into host- and joiner-prefixed StateMessage fields) so later phases
  * (role, holdables, etc.) have somewhere to grow without reshaping the
@@ -87,6 +101,8 @@ export interface EnemyState {
 export interface PlayerState {
   pos: Vec2
   lives: number
+  /** Heart-container cap (DESIGN.md §3) — the joiner needs this too, not just `lives`, to render a heart row's empty slots correctly. */
+  maxLives: number
   isOut: boolean
   isInvincible: boolean
 }
@@ -114,6 +130,10 @@ export interface StateMessage {
   exploredRooms: RoomCoord[]
   /** Room-clear reward pickups currently on the ground in this room. */
   itemPickups: ItemPickupState[]
+  /** Every Buddy familiar in play, both players' combined (host's and joiner's aren't distinguished — see FollowerState). */
+  buddies: FollowerState[]
+  /** Every Orbiting Shield in play, both players' combined. */
+  shields: FollowerState[]
   isGameOver: boolean
   isPaused: boolean
 }
@@ -147,6 +167,7 @@ function isPlayerState(value: unknown): value is PlayerState {
   return (
     isVec2(v.pos) &&
     typeof v.lives === 'number' &&
+    typeof v.maxLives === 'number' &&
     typeof v.isOut === 'boolean' &&
     typeof v.isInvincible === 'boolean'
   )
@@ -157,7 +178,12 @@ function isProjectileState(value: unknown): value is ProjectileState {
     return false
   }
   const v = value as Record<string, unknown>
-  return typeof v.id === 'number' && isVec2(v.pos) && (v.radius === undefined || typeof v.radius === 'number')
+  return (
+    typeof v.id === 'number' &&
+    isVec2(v.pos) &&
+    (v.radius === undefined || typeof v.radius === 'number') &&
+    (v.color === undefined || typeof v.color === 'number')
+  )
 }
 
 function isItemPickupState(value: unknown): value is ItemPickupState {
@@ -166,6 +192,14 @@ function isItemPickupState(value: unknown): value is ItemPickupState {
   }
   const v = value as Record<string, unknown>
   return typeof v.id === 'number' && typeof v.itemId === 'string' && isKnownItemId(v.itemId) && isVec2(v.pos)
+}
+
+function isFollowerState(value: unknown): value is FollowerState {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const v = value as Record<string, unknown>
+  return typeof v.id === 'number' && isVec2(v.pos)
 }
 
 function isEnemyState(value: unknown): value is EnemyState {
@@ -244,6 +278,10 @@ export function isStateMessage(data: unknown): data is StateMessage {
     v.exploredRooms.every(isRoomCoord) &&
     Array.isArray(v.itemPickups) &&
     v.itemPickups.every(isItemPickupState) &&
+    Array.isArray(v.buddies) &&
+    v.buddies.every(isFollowerState) &&
+    Array.isArray(v.shields) &&
+    v.shields.every(isFollowerState) &&
     typeof v.isGameOver === 'boolean' &&
     typeof v.isPaused === 'boolean'
   )

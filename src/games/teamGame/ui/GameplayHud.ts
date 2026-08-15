@@ -3,9 +3,9 @@ import { TOGGLE_BUTTON_STYLE, createAudioToggleButtons } from '../../../ui/audio
 import type { RoomUiState } from '../simulation/GameSimulation'
 import { WORLD_WIDTH, WORLD_HEIGHT, DOOR_ZONES, BOSS_HOLE_CENTER, BOSS_HOLE_RADIUS } from '../simulation/GameSimulation'
 import type { Direction } from '../rooms/floorLayout'
-import { ALL_DIRECTIONS } from '../rooms/floorLayout'
-import type { ItemId } from '../gameplay/items'
-import { getItemLabel, BOOST_ITEM_IDS, STRONG_ITEM_IDS, STAT_ITEMS } from '../gameplay/items'
+import { ALL_DIRECTIONS, getNeighborCoord, getRoomDefinition } from '../rooms/floorLayout'
+import type { BoostItemId, ItemId, StrongItemId } from '../gameplay/items'
+import { BOOST_ITEM_IDS, STRONG_ITEM_IDS, STAT_ITEMS } from '../gameplay/items'
 import MiniMap from './MiniMap'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -42,9 +42,10 @@ const DEV_GROUP_TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#ffffff',
 }
 
+/** Dev menu shows raw item ids (e.g. "multiDirection"), not the long localized labels — much shorter, and the id is what you'd want to search the codebase for anyway. */
 const DEV_ITEM_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
-  fontSize: '13px',
+  fontSize: '12px',
   color: '#ffffff',
 }
 
@@ -54,11 +55,52 @@ const LEVEL_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#ffcc66',
 }
 
+/** Own hearts (top-left) — full size, this is "your" life total. */
+const OWN_HEARTS_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '24px',
+}
+
+/** Partner's hearts (top-right, above the minimap) — smaller, it's secondary at-a-glance info. */
+const PARTNER_HEARTS_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '14px',
+}
+
+const FILLED_HEART = '❤️'
+const EMPTY_HEART = '🤍'
+
 const PAUSE_BACKDROP_ALPHA = 0.6
 const DOOR_OPEN_COLOR = 0x33cc55
 const DOOR_CLOSED_COLOR = 0x663333
+/** Matches MiniMap.ts's GOLDEN_COLOR/BOSS_COLOR — a door leading to one of these rooms is tinted the same way the minimap already reveals it, open or not. */
+const GOLDEN_DOOR_OPEN_COLOR = 0xffcc00
+const GOLDEN_DOOR_CLOSED_COLOR = 0x665200
+const BOSS_DOOR_OPEN_COLOR = 0xdd2222
+const BOSS_DOOR_CLOSED_COLOR = 0x551111
 const BOSS_HOLE_COLOR = 0x110022
 const MINI_MAP_MARGIN = 16
+const HEARTS_MARGIN = 16
+/** Vertical space reserved for the partner-hearts row above the minimap — the minimap itself is pushed down by this much. */
+const PARTNER_HEARTS_ROW_HEIGHT = 26
+
+/** One filled heart per current life, one empty heart per remaining container up to the cap — e.g. 3/5 renders ❤️❤️❤️🤍🤍. */
+function heartRow(lives: number, maxLives: number): string {
+  const filled = Math.max(0, Math.min(lives, maxLives))
+  const empty = Math.max(0, maxLives - filled)
+  return FILLED_HEART.repeat(filled) + EMPTY_HEART.repeat(empty)
+}
+
+/** Golden/boss destinations get their own tint (matching the minimap's colors) even before the current room is cleared — same "reveal as soon as known" spirit the minimap already uses for adjacent rooms, just applied to the door itself. */
+function doorColorFor(neighbor: { isBoss: boolean; isGolden: boolean } | undefined, roomClear: boolean): number {
+  if (neighbor?.isBoss) {
+    return roomClear ? BOSS_DOOR_OPEN_COLOR : BOSS_DOOR_CLOSED_COLOR
+  }
+  if (neighbor?.isGolden) {
+    return roomClear ? GOLDEN_DOOR_OPEN_COLOR : GOLDEN_DOOR_CLOSED_COLOR
+  }
+  return roomClear ? DOOR_OPEN_COLOR : DOOR_CLOSED_COLOR
+}
 
 export interface GameplayHudOptions {
   scene: Phaser.Scene
@@ -92,6 +134,8 @@ export default class GameplayHud {
   private readonly bossHoleGraphic: Phaser.GameObjects.Arc
   private readonly miniMap: MiniMap
   private readonly levelText: Phaser.GameObjects.Text
+  private readonly ownHeartsText: Phaser.GameObjects.Text
+  private readonly partnerHeartsText: Phaser.GameObjects.Text
   private gameOverText?: Phaser.GameObjects.Text
   private pauseMenuObjects: Phaser.GameObjects.GameObject[] = []
   private lastRenderedLevel = 0
@@ -125,12 +169,18 @@ export default class GameplayHud {
       .circle(BOSS_HOLE_CENTER.x, BOSS_HOLE_CENTER.y, BOSS_HOLE_RADIUS, BOSS_HOLE_COLOR)
       .setVisible(false)
 
-    this.miniMap = new MiniMap(this.scene, WORLD_WIDTH - MINI_MAP_MARGIN, MINI_MAP_MARGIN)
+    // Minimap is pushed down to leave room for the partner-hearts row above it.
+    this.miniMap = new MiniMap(this.scene, WORLD_WIDTH - MINI_MAP_MARGIN, MINI_MAP_MARGIN + PARTNER_HEARTS_ROW_HEIGHT)
     this.levelText = this.scene.add
       .text(WORLD_WIDTH - MINI_MAP_MARGIN, WORLD_HEIGHT, '', LEVEL_TEXT_STYLE)
       .setOrigin(1, 1)
       .setDepth(150)
-    this.sharedUiObjects.push(this.levelText)
+    this.ownHeartsText = this.scene.add.text(HEARTS_MARGIN, HEARTS_MARGIN, '', OWN_HEARTS_STYLE).setOrigin(0, 0).setDepth(150)
+    this.partnerHeartsText = this.scene.add
+      .text(WORLD_WIDTH - MINI_MAP_MARGIN, MINI_MAP_MARGIN, '', PARTNER_HEARTS_STYLE)
+      .setOrigin(1, 0)
+      .setDepth(150)
+    this.sharedUiObjects.push(this.levelText, this.ownHeartsText, this.partnerHeartsText)
   }
 
   /** Call once per tick (host/solo: every frame) or once per received message (joiner) — redraws doors, refreshes the minimap/level text, and shows the game-over text once state.isGameOver. */
@@ -148,7 +198,8 @@ export default class GameplayHud {
           continue
         }
         rect.setVisible(state.isDirectionOpen(direction))
-        rect.setFillStyle(clear ? DOOR_OPEN_COLOR : DOOR_CLOSED_COLOR)
+        const neighbor = getRoomDefinition(state.floorRoomEntries, getNeighborCoord(state.currentRoomCoord, direction))
+        rect.setFillStyle(doorColorFor(neighbor, clear))
       }
     }
 
@@ -158,6 +209,9 @@ export default class GameplayHud {
       this.levelText.setText(`레벨 ${state.currentLevel}`)
     }
     this.miniMap.refresh(state.exploredRooms, state.currentRoomCoord)
+
+    this.ownHeartsText.setText(heartRow(state.ownLives, state.ownMaxLives))
+    this.partnerHeartsText.setText(state.partnerLives === null ? '' : heartRow(state.partnerLives, state.partnerMaxLives ?? 0))
 
     if (state.isGameOver) {
       this.showGameOver()
@@ -199,48 +253,54 @@ export default class GameplayHud {
         .setDepth(210)
       this.pauseMenuObjects.push(devTitle)
 
-      const boostBg = this.scene.add.rectangle(240, 500, 320, 160, 0x222233, 0.6).setDepth(205)
-      const strongBg = this.scene.add.rectangle(560, 500, 320, 160, 0x332222, 0.6).setDepth(205)
-      this.pauseMenuObjects.push(boostBg, strongBg)
-
-      const boostTitle = this.scene.add.text(240, 450, 'Boosts', DEV_GROUP_TITLE_STYLE).setOrigin(0.5).setDepth(210)
-      const strongTitle = this.scene.add.text(560, 450, 'Strong Items', DEV_GROUP_TITLE_STYLE).setOrigin(0.5).setDepth(210)
-      this.pauseMenuObjects.push(boostTitle, strongTitle)
-
-      let idx = 0
-      for (const id of BOOST_ITEM_IDS) {
-        const col = idx % 2
-        const row = Math.floor(idx / 2)
-        const x = 240 + (col === 0 ? -80 : 80)
-        const y = 480 + row * 28
-        const sw = this.scene.add.rectangle(x - 80, y, 14, 14, STAT_ITEMS[id].color).setDepth(210)
-        const btn = this.scene.add
-          .text(x - 54, y, getItemLabel(id), DEV_ITEM_TEXT_STYLE)
-          .setOrigin(0, 0.5)
-          .setDepth(210)
-          .setInteractive({ useHandCursor: true })
-          .on('pointerdown', () => onGiveItem(id))
-        this.pauseMenuObjects.push(sw, btn)
-        idx++
-      }
-
-      let sidx = 0
-      for (const id of STRONG_ITEM_IDS) {
-        const col = sidx % 2
-        const row = Math.floor(sidx / 2)
-        const x = 560 + (col === 0 ? -80 : 80)
-        const y = 480 + row * 28
-        const sw = this.scene.add.rectangle(x - 80, y, 14, 14, STAT_ITEMS[id].color).setDepth(210)
-        const btn = this.scene.add
-          .text(x - 54, y, getItemLabel(id), DEV_ITEM_TEXT_STYLE)
-          .setOrigin(0, 0.5)
-          .setDepth(210)
-          .setInteractive({ useHandCursor: true })
-          .on('pointerdown', () => onGiveItem(id))
-        this.pauseMenuObjects.push(sw, btn)
-        sidx++
-      }
+      this.renderDevItemGroup(240, 'Boosts', BOOST_ITEM_IDS, 0x222233, onGiveItem)
+      this.renderDevItemGroup(560, 'Strong Items', STRONG_ITEM_IDS, 0x332222, onGiveItem)
     }
+  }
+
+  /**
+   * One dev give-item column, sized to however many ids it's given instead
+   * of a fixed box — as the strong-item pool grows (8 and counting) a fixed
+   * height either clips items or leaves the labels cramped. Shows each
+   * item's raw id (e.g. "multiDirection") rather than its full localized
+   * label — much shorter, and it's what you'd grep the codebase for anyway.
+   */
+  private renderDevItemGroup(
+    centerX: number,
+    title: string,
+    ids: (BoostItemId | StrongItemId)[],
+    bgColor: number,
+    onGiveItem: (id: ItemId) => void,
+  ) {
+    const columns = 2
+    const boxWidth = 320
+    const rowHeight = 20
+    const headerHeight = 34
+    const boxTop = 410
+    const rows = Math.max(1, Math.ceil(ids.length / columns))
+    const boxHeight = headerHeight + rows * rowHeight
+    const boxCenterY = boxTop + boxHeight / 2
+
+    const bg = this.scene.add.rectangle(centerX, boxCenterY, boxWidth, boxHeight, bgColor, 0.6).setDepth(205)
+    const groupTitle = this.scene.add.text(centerX, boxTop + 14, title, DEV_GROUP_TITLE_STYLE).setOrigin(0.5).setDepth(210)
+    this.pauseMenuObjects.push(bg, groupTitle)
+
+    const colWidth = boxWidth / columns
+    ids.forEach((id, index) => {
+      const col = index % columns
+      const row = Math.floor(index / columns)
+      const colLeft = centerX - boxWidth / 2 + col * colWidth
+      const x = colLeft + 12
+      const y = boxTop + headerHeight + row * rowHeight + rowHeight / 2
+      const sw = this.scene.add.rectangle(x, y, 10, 10, STAT_ITEMS[id].color).setDepth(210)
+      const btn = this.scene.add
+        .text(x + 10, y, id, DEV_ITEM_TEXT_STYLE)
+        .setOrigin(0, 0.5)
+        .setDepth(210)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => onGiveItem(id))
+      this.pauseMenuObjects.push(sw, btn)
+    })
   }
 
   hidePauseMenu() {
