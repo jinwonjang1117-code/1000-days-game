@@ -156,10 +156,10 @@ export default class LobbyScene extends Phaser.Scene {
 
     this.addStepObject(
       this.add
-        .text(400, 420, '솔로 테스트 (개발용)', CANCEL_BUTTON_STYLE)
+        .text(400, 440, '싱글 플레이', MENU_BUTTON_STYLE)
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.scene.start(TeamGameScenes.DevTest, { solo: true })),
+        .on('pointerdown', () => this.scene.start(TeamGameScenes.Play)),
     )
 
     this.addBackToHubButton()

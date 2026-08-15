@@ -117,9 +117,15 @@ export default class Projectile {
     return this.homingStrength > 0
   }
 
-  /** Whether this projectile should attach to the first enemy it hits (homing+pierce behavior). */
+  /**
+   * Whether this projectile should attach to the first enemy it hits
+   * (homing+pierce behavior). Excludes an already-attached projectile —
+   * without this, a shot chasing its attached target could graze a
+   * different enemy along the way and silently reassign itself, abandoning
+   * the enemy it was still ticking damage against.
+   */
   shouldAttachOnHit(): boolean {
-    return this.homingStrength > 0 && this.pierceRemaining > 0
+    return this.homingStrength > 0 && this.pierceRemaining > 0 && !this.isAttached()
   }
 
   attachTo(enemyId: number) {
