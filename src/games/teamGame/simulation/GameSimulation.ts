@@ -7,7 +7,8 @@ import ItemPickup from '../entities/ItemPickup'
 import type { EnemyArchetype } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import type { ItemId } from '../gameplay/items'
-import { getItemLabel, randomBoostItemId, randomStrongItemId } from '../gameplay/items'
+import { getItemLabel, randomBoostItemId, randomStrongItemIds, STAT_ITEMS } from '../gameplay/items'
+import { bonusContainersForLevel } from '../gameplay/lives'
 import type { Direction, RoomCoord, RoomDefinition } from '../rooms/floorLayout'
 import { ALL_DIRECTIONS, getRoomDefinition, getNeighborCoord, hasNeighbor, oppositeDirection, coordsEqual } from '../rooms/floorLayout'
 import type { GeneratedFloor } from '../rooms/floorGenerator'
@@ -190,6 +191,8 @@ export default class GameSimulation implements RoomUiState {
   private itemPickups: Map<number, ItemPickup> = new Map()
   private itemPickupColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
   private nextItemPickupId = 0
+  /** Run-wide, not per-player — a `unique` item (see items.ts) is excluded from future strong-item rolls once anyone has gotten it. No item sets `unique` yet, so this has no visible effect today. */
+  private grantedUniqueItems: Set<ItemId> = new Set()
 
   private gameOver = false
   private paused = false
@@ -251,6 +254,11 @@ export default class GameSimulation implements RoomUiState {
 
   isCurrentRoomBoss(): boolean {
     return getRoomDefinition(this.floorRooms, this.roomCoord)?.isBoss ?? false
+  }
+
+  /** No fight here — see rollRoomClearReward, which drops a guaranteed strong item the instant this room's (already-empty) enemy list is detected clear. */
+  private isCurrentRoomGolden(): boolean {
+    return getRoomDefinition(this.floorRooms, this.roomCoord)?.isGolden ?? false
   }
 
   isRoomClear(): boolean {
@@ -362,14 +370,25 @@ export default class GameSimulation implements RoomUiState {
 
   /** Dev-menu hook: applies an item straight to the host player, same reveal a real pickup gets. */
   giveItemToHostPlayer(itemId: ItemId) {
-    if (itemId === 'heart') {
-      this.hostPlayer.grantLife()
-    } else {
-      this.hostPlayer.applyItem(itemId)
-    }
+    this.applyGrantedItem(itemId, this.hostPlayer)
     showPickupText(this.scene, this.hostPlayer.x, this.hostPlayer.y, getItemLabel(itemId))
     if (itemId === 'fart') {
       playFartSound()
+    }
+  }
+
+  /** Effect-application, shared by real pickups and the dev give-item menu. 'heart' and 'heartContainer' aren't PlayerStats mutators, so they're special-cased here rather than going through Player.applyItem. */
+  private applyGrantedItem(itemId: ItemId, player: Player) {
+    if (itemId === 'heart') {
+      player.grantLife()
+    } else if (itemId === 'heartContainer') {
+      player.increaseMaxLives(2)
+    } else {
+      player.applyItem(itemId)
+    }
+
+    if (itemId !== 'heart' && STAT_ITEMS[itemId].unique) {
+      this.grantedUniqueItems.add(itemId)
     }
   }
 
@@ -572,11 +591,29 @@ export default class GameSimulation implements RoomUiState {
    * edge, which a brand-new floor's start room doesn't have.
    */
   private startLevel(level: number) {
+    // Passive heart-container growth (DESIGN.md §3) — computed off the
+    // outgoing level before it's overwritten, so this is a no-op on the
+    // very first call (startLevel(1) when this.level is already 1).
+    const containerDelta = bonusContainersForLevel(level) - bonusContainersForLevel(this.level)
+    if (containerDelta > 0) {
+      this.hostPlayer.increaseMaxLives(containerDelta)
+      this.joinerPlayer?.increaseMaxLives(containerDelta)
+    }
+
     this.level = level
     this.currentFloor = generateFloor(level)
-    this.floorRooms = this.currentFloor.rooms.map((room) => ({ coord: room.coord, isBoss: !!room.isBoss }))
+    this.floorRooms = this.currentFloor.rooms.map((room) => ({
+      coord: room.coord,
+      isBoss: !!room.isBoss,
+      isGolden: !!room.isGolden,
+    }))
     this.explored = [this.currentFloor.startCoord]
     this.clearedRooms = []
+
+    // No-ops for a player who wasn't out — safe to call every level start,
+    // including the very first one.
+    this.hostPlayer.respawnForNextLevel()
+    this.joinerPlayer?.respawnForNextLevel()
 
     this.hostPlayer.teleport(HOST_START.x, HOST_START.y)
     this.joinerPlayer?.teleport(JOINER_START.x, JOINER_START.y)
@@ -667,6 +704,22 @@ export default class GameSimulation implements RoomUiState {
     if (joinerPlayer) {
       colliders.push(this.scene.physics.add.overlap(joinerPlayer.square, enemy.square, () => this.handleHit(joinerPlayer)))
     }
+
+    // spawnProjectile only wires a shot up against enemies that already
+    // existed at the moment it was fired — an enemy spawned afterward
+    // (most notably a Splitter's children, spawned mid-flight when a
+    // piercing shot kills their parent) had no overlap registered against
+    // any already-flying projectile at all, so a piercing shot could never
+    // actually hit them despite having pierce charges left. Wired up here,
+    // from the enemy side, for every projectile currently in flight.
+    this.projectiles.forEach((projectile, projectileId) => {
+      const collider = this.scene.physics.add.overlap(projectile.shape, enemy.square, () => {
+        this.handleProjectileHitEnemy(projectileId, id)
+      })
+      colliders.push(collider)
+      this.projectileColliders.get(projectileId)?.push(collider)
+    })
+
     this.roomEnemyColliders.set(id, colliders)
   }
 
@@ -716,9 +769,26 @@ export default class GameSimulation implements RoomUiState {
       return
     }
 
+    // Boss and golden rooms drop 2 *distinct* strong items side by side —
+    // in co-op each player can grab a different one; solo, both are
+    // available to the one player.
     if (this.isCurrentRoomBoss()) {
-      const itemId = randomStrongItemId()
-      this.spawnItemPickup(itemId, BOSS_HOLE_CENTER.x, BOSS_HOLE_CENTER.y - REGULAR_REWARD_SPACING)
+      const [firstId, secondId] = randomStrongItemIds(2, this.grantedUniqueItems)
+      this.spawnItemPickup(firstId, BOSS_HOLE_CENTER.x - REGULAR_REWARD_SPACING / 2, BOSS_HOLE_CENTER.y - REGULAR_REWARD_SPACING)
+      if (secondId) {
+        this.spawnItemPickup(secondId, BOSS_HOLE_CENTER.x + REGULAR_REWARD_SPACING / 2, BOSS_HOLE_CENTER.y - REGULAR_REWARD_SPACING)
+      }
+      return
+    }
+
+    // No fight, no regular boost/heart pool — a golden room is a
+    // guaranteed strong-item drop and nothing else.
+    if (this.isCurrentRoomGolden()) {
+      const [firstId, secondId] = randomStrongItemIds(2, this.grantedUniqueItems)
+      this.spawnItemPickup(firstId, ENEMY_SPAWN_CENTER.x - REGULAR_REWARD_SPACING / 2, ENEMY_SPAWN_CENTER.y)
+      if (secondId) {
+        this.spawnItemPickup(secondId, ENEMY_SPAWN_CENTER.x + REGULAR_REWARD_SPACING / 2, ENEMY_SPAWN_CENTER.y)
+      }
       return
     }
 
@@ -766,12 +836,7 @@ export default class GameSimulation implements RoomUiState {
   /** Applies the effect to whichever specific player touched it. */
   private handleItemPickup(pickupId: number, itemId: ItemId, player: Player) {
     this.destroyItemPickup(pickupId)
-
-    if (itemId === 'heart') {
-      player.grantLife()
-    } else {
-      player.applyItem(itemId)
-    }
+    this.applyGrantedItem(itemId, player)
 
     showPickupText(this.scene, player.x, player.y, getItemLabel(itemId))
     if (itemId === 'fart') {

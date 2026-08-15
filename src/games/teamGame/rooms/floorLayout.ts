@@ -26,6 +26,8 @@ export interface RoomDefinition {
   enemies: RoomEnemyGroup[]
   /** Marks the floor's boss room — see rooms/floorGenerator.ts and DevTestScene's hole-instead-of-doors handling. */
   isBoss?: boolean
+  /** Marks the floor's golden room — no enemies, a guaranteed strong-item drop. One per level, see rooms/floorGenerator.ts. */
+  isGolden?: boolean
 }
 
 export function coordsEqual(a: RoomCoord, b: RoomCoord): boolean {

@@ -156,12 +156,22 @@ export function generateFloor(level: number): GeneratedFloor {
   const coords = generateLayout(roomCountForLevel(level))
   const bossCoord = findFurthestCoord(coords)
 
+  // One golden room per level — no fight, a guaranteed strong-item drop
+  // (see GameSimulation's rollRoomClearReward). Picked from whatever's
+  // left once the start and boss rooms are spoken for; roomCountForLevel
+  // never goes below 6, so there's always at least one candidate.
+  const goldenCandidates = coords.filter((coord) => !coordsEqual(coord, START_COORD) && !coordsEqual(coord, bossCoord))
+  const goldenCoord = goldenCandidates[Math.floor(Math.random() * goldenCandidates.length)]
+
   const rooms: RoomDefinition[] = coords.map((coord) => {
     if (coordsEqual(coord, START_COORD)) {
       return { coord, enemies: [] }
     }
     if (coordsEqual(coord, bossCoord)) {
       return { coord, enemies: [{ archetype: 'boss', count: 1 }], isBoss: true }
+    }
+    if (coordsEqual(coord, goldenCoord)) {
+      return { coord, enemies: [], isGolden: true }
     }
     return { coord, enemies: pickRoomEnemies(level) }
   })

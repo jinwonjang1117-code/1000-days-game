@@ -44,7 +44,7 @@ export interface LevelStartMessage {
   type: 'levelStart'
   level: number
   startCoord: RoomCoord
-  rooms: { coord: RoomCoord; isBoss: boolean }[]
+  rooms: { coord: RoomCoord; isBoss: boolean; isGolden: boolean }[]
 }
 
 export interface Vec2 {
@@ -202,12 +202,12 @@ export function isPauseToggleMessage(data: unknown): data is PauseToggleMessage 
   return typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'pauseToggle'
 }
 
-function isRoomEntry(value: unknown): value is { coord: RoomCoord; isBoss: boolean } {
+function isRoomEntry(value: unknown): value is { coord: RoomCoord; isBoss: boolean; isGolden: boolean } {
   if (typeof value !== 'object' || value === null) {
     return false
   }
   const v = value as Record<string, unknown>
-  return isRoomCoord(v.coord) && typeof v.isBoss === 'boolean'
+  return isRoomCoord(v.coord) && typeof v.isBoss === 'boolean' && typeof v.isGolden === 'boolean'
 }
 
 export function isLevelStartMessage(data: unknown): data is LevelStartMessage {

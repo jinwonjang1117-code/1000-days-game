@@ -4,6 +4,8 @@ import {
   createLifeState,
   applyHit as applyHitToLifeState,
   grantLife as grantLifeToState,
+  increaseMaxLives as increaseMaxLivesForState,
+  respawnForNextLevel as respawnLifeStateForNextLevel,
   isInvincible as isLifeStateInvincible,
   INVINCIBILITY_DURATION_MS,
 } from '../gameplay/lives'
@@ -121,6 +123,16 @@ export default class Player {
   /** Item-pickup effect (Heart). */
   grantLife() {
     this.lifeState = grantLifeToState(this.lifeState)
+  }
+
+  /** Item-pickup effect (Heart Container) / passive per-level growth (DESIGN.md §3). */
+  increaseMaxLives(amount: number) {
+    this.lifeState = increaseMaxLivesForState(this.lifeState, amount)
+  }
+
+  /** Called when a new level starts (DESIGN.md §3) — no-ops unless this player was out, in which case it comes back with a fixed 3 lives, not its previous count. */
+  respawnForNextLevel() {
+    this.lifeState = respawnLifeStateForNextLevel(this.lifeState)
   }
 
   /** Item-pickup effect (any boost or boss-tier item) — looks up its effect and applies it to this player's stats. 'fart' is a no-op by design (see gameplay/items.ts). */

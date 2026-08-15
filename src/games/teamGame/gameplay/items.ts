@@ -17,7 +17,7 @@
 // magnitude is an internal tuning value, not something the reveal promises.
 
 export type BoostItemId = 'speed' | 'fireRate' | 'damage' | 'projectileSpeed' | 'range' | 'size' | 'invincibility' | 'fart'
-export type StrongItemId = 'multiShot' | 'pierce' | 'homing' | 'multiDirection'
+export type StrongItemId = 'multiShot' | 'pierce' | 'homing' | 'multiDirection' | 'heartContainer'
 export type ItemId = BoostItemId | StrongItemId | 'heart'
 
 export interface PlayerStats {
@@ -59,6 +59,8 @@ export interface ItemDefinition {
   color: number
   /** Relative spawn weight when chosen from a pool. Higher => more likely. Defaults to 1. */
   weight?: number
+  /** Caps this item at one grant per run instead of stacking freely. Defaults to falsy (stackable) — matches every item today. */
+  unique?: boolean
   /** Returns a new PlayerStats — same immutable-update style as gameplay/lives.ts. */
   apply: (stats: PlayerStats) => PlayerStats
 }
@@ -150,13 +152,24 @@ export const STRONG_ITEMS: Record<StrongItemId, ItemDefinition> = {
     color: 0x66ff88,
     apply: (stats) => ({ ...stats, hasMultiDirection: stats.hasMultiDirection + 1 }),
   },
+  // Not a PlayerStats mutator — like 'heart', its real effect (+2 max lives,
+  // filled immediately) is special-cased wherever an item is applied
+  // (see GameSimulation's item-pickup handling). apply stays an identity
+  // no-op purely so this can live in the same STAT_ITEMS lookup as
+  // everything else (label, color, weighted-pick eligibility).
+  heartContainer: {
+    id: 'heartContainer',
+    label: '하트 컨테이너 (최대 생명력 +2)',
+    color: 0xff3377,
+    apply: (stats) => stats,
+  },
 }
 
 export const BOOST_ITEM_IDS = Object.keys(BOOST_ITEMS) as BoostItemId[]
 export const STRONG_ITEM_IDS = Object.keys(STRONG_ITEMS) as StrongItemId[]
 
-function weightedRandomFromRecord<T extends string>(record: Record<T, { weight?: number }>): T {
-  const entries = Object.entries(record) as [T, { weight?: number }][]
+function weightedRandomFromRecord<T extends string>(record: Record<T, { weight?: number }>, excludeIds?: Set<string>): T {
+  const entries = (Object.entries(record) as [T, { weight?: number }][]).filter(([k]) => !excludeIds?.has(k))
   const total = entries.reduce((sum, [, v]) => sum + (v.weight ?? 1), 0)
   let r = Math.random() * total
   for (const [k, v] of entries) {
@@ -171,8 +184,29 @@ export function randomBoostItemId(): BoostItemId {
   return weightedRandomFromRecord(BOOST_ITEMS)
 }
 
-export function randomStrongItemId(): StrongItemId {
-  return weightedRandomFromRecord(STRONG_ITEMS)
+/** excludeIds keeps already-granted unique items out of the pool — see ItemDefinition.unique. */
+export function randomStrongItemId(excludeIds?: Set<string>): StrongItemId {
+  return weightedRandomFromRecord(STRONG_ITEMS, excludeIds)
+}
+
+/**
+ * Draws `count` *distinct* strong items (no duplicates within one draw) —
+ * golden/boss rooms use this so a co-op pair never has to compete for the
+ * same pickup. Gracefully caps at however many eligible items remain if the
+ * pool is smaller than `count` (not reachable at today's item count, but
+ * shouldn't throw if it ever is).
+ */
+export function randomStrongItemIds(count: number, excludeIds?: Set<string>): StrongItemId[] {
+  const drawn = new Set<string>(excludeIds)
+  const eligibleCount = STRONG_ITEM_IDS.length - drawn.size
+  const drawCount = Math.min(count, eligibleCount)
+  const result: StrongItemId[] = []
+  for (let i = 0; i < drawCount; i++) {
+    const id = weightedRandomFromRecord(STRONG_ITEMS, drawn)
+    drawn.add(id)
+    result.push(id)
+  }
+  return result
 }
 
 /** Combined lookup for wherever a stat-mutating item (anything but 'heart') is applied — see entities/Player.ts's applyItem. */

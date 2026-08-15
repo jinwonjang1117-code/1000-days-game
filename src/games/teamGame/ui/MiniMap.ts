@@ -12,24 +12,29 @@ const UNEXPLORED_ALPHA = 0
 const KNOWN_COLOR = 0x555566
 const EXPLORED_COLOR = 0xccddff
 const BOSS_COLOR = 0xdd2222
+const GOLDEN_COLOR = 0xffcc00
 const CURRENT_ROOM_STROKE = 0xffffff
 
 export interface MiniMapRoomInfo {
   coord: RoomCoord
   isBoss: boolean
+  isGolden: boolean
 }
 
 /**
  * Fog-of-war minimap, anchored by its top-right corner at (x, y). A room
  * square is invisible until it's either been visited or is adjacent to a
  * visited room ("known") — nothing about the floor's shape is revealed
- * upfront. The boss room gets a distinct color as soon as it's known, same
- * as any other room becoming visible — it just looks different once seen.
+ * upfront. The boss and golden rooms get distinct colors as soon as
+ * they're known, same as any other room becoming visible — they just
+ * look different once seen.
  */
 export default class MiniMap {
   private readonly container: Phaser.GameObjects.Container
-  private readonly squares: Map<string, { coord: RoomCoord; isBoss: boolean; rect: Phaser.GameObjects.Rectangle }> =
-    new Map()
+  private readonly squares: Map<
+    string,
+    { coord: RoomCoord; isBoss: boolean; isGolden: boolean; rect: Phaser.GameObjects.Rectangle }
+  > = new Map()
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
     this.container = scene.add.container(x, y).setDepth(150)
@@ -82,7 +87,7 @@ export default class MiniMap {
         UNEXPLORED_ALPHA,
       )
       this.container.add(rect)
-      this.squares.set(coordKey(room.coord), { coord: room.coord, isBoss: room.isBoss, rect })
+      this.squares.set(coordKey(room.coord), { coord: room.coord, isBoss: room.isBoss, isGolden: room.isGolden, rect })
     }
   }
 
@@ -110,7 +115,13 @@ export default class MiniMap {
         continue
       }
 
-      const fillColor = entry.isBoss ? BOSS_COLOR : isExplored ? EXPLORED_COLOR : KNOWN_COLOR
+      const fillColor = entry.isBoss
+        ? BOSS_COLOR
+        : entry.isGolden
+          ? GOLDEN_COLOR
+          : isExplored
+            ? EXPLORED_COLOR
+            : KNOWN_COLOR
       entry.rect.setFillStyle(fillColor, 1)
       if (isCurrent) {
         entry.rect.setStrokeStyle(2, CURRENT_ROOM_STROKE, 1)

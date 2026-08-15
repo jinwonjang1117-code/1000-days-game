@@ -8,6 +8,8 @@ export const INVINCIBILITY_DURATION_MS = 1200
 
 export interface LifeState {
   lives: number
+  /** Heart-container cap (DESIGN.md §3) — grantLife/increaseMaxLives never push `lives` past this. */
+  maxLives: number
   isOut: boolean
   /**
    * Timestamp on the host's own scene clock (scene.time.now) — never sent
@@ -18,7 +20,12 @@ export interface LifeState {
 }
 
 export function createLifeState(): LifeState {
-  return { lives: STARTING_LIVES, isOut: false, invincibleUntil: 0 }
+  return { lives: STARTING_LIVES, maxLives: STARTING_LIVES, isOut: false, invincibleUntil: 0 }
+}
+
+/** Passive heart-container growth (DESIGN.md §3): +1 every 2 levels, 0 at levels 1-2. */
+export function bonusContainersForLevel(level: number): number {
+  return Math.floor((level - 1) / 2)
 }
 
 export function isInvincible(state: LifeState, now: number): boolean {
@@ -37,15 +44,22 @@ export function applyHit(
 
   const lives = state.lives - 1
   return {
+    ...state,
     lives,
     isOut: lives <= 0,
     invincibleUntil: now + invincibilityDurationMs,
   }
 }
 
-/** Item-pickup effect (Heart) — no other rules apply, just +1 life. */
+/** Item-pickup effect (Heart) — +1 life, capped at maxLives. */
 export function grantLife(state: LifeState): LifeState {
-  return { ...state, lives: state.lives + 1 }
+  return { ...state, lives: Math.min(state.lives + 1, state.maxLives) }
+}
+
+/** Item-pickup effect (Heart Container strong item) / passive per-level growth — raises the cap and immediately fills the new capacity. */
+export function increaseMaxLives(state: LifeState, amount: number): LifeState {
+  const maxLives = state.maxLives + amount
+  return { ...state, maxLives, lives: Math.min(state.lives + amount, maxLives) }
 }
 
 /**
@@ -58,5 +72,5 @@ export function respawnForNextLevel(state: LifeState): LifeState {
   if (!state.isOut) {
     return state
   }
-  return { lives: RESPAWN_LIVES, isOut: false, invincibleUntil: 0 }
+  return { ...state, lives: Math.min(RESPAWN_LIVES, state.maxLives), isOut: false, invincibleUntil: 0 }
 }
