@@ -12,6 +12,7 @@ import type {
   EnemyState,
   ItemPickupState,
   FollowerState,
+  HazardZoneState,
 } from '../net/syncProtocol'
 import { isInputMessage, isPauseToggleMessage, isLevelStartMessage, isStateMessage } from '../net/syncProtocol'
 import Player from '../entities/Player'
@@ -20,6 +21,7 @@ import Enemy from '../entities/Enemy'
 import ItemPickup from '../entities/ItemPickup'
 import Buddy from '../entities/Buddy'
 import OrbitingShield from '../entities/OrbitingShield'
+import HazardZone from '../entities/HazardZone'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import { getItemLabel } from '../gameplay/items'
 import type { Direction, RoomCoord } from '../rooms/floorLayout'
@@ -48,6 +50,9 @@ const EMPTY_KEYS: KeyState = { up: false, down: false, left: false, right: false
 const ENEMY_PROJECTILE_COLOR = 0xff3366
 /** Matches gameplay/items.ts's 'buddy' strong item color — joiner-side Buddy render, since the entity itself doesn't know its own item color. */
 const BUDDY_COLOR = 0x33aaff
+/** Matches simulation/GameSimulation.ts's ROCK_COLOR/WATER_COLOR — this is purely visual here, no physics, since the joiner never locally simulates collision. */
+const ROCK_COLOR = 0x554433
+const WATER_COLOR = 0x3366cc
 
 const ORIGIN_COORD: RoomCoord = { x: 0, y: 0 }
 
@@ -98,6 +103,9 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
   private itemPickups: Map<number, ItemPickup> = new Map()
   private buddies: Map<number, Buddy> = new Map()
   private shields: Map<number, OrbitingShield> = new Map()
+  private hazardZones: Map<number, HazardZone> = new Map()
+  /** Purely visual — redrawn from floorRoomEntries whenever currentRoomCoord changes (see reconcileRoomObstacles). No physics: the joiner never locally simulates collision to begin with. */
+  private roomObstacleGraphics: Phaser.GameObjects.Rectangle[] = []
 
   private lastSentKeys: KeyState = EMPTY_KEYS
   private lastSentFire = false
@@ -139,6 +147,10 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
     this.buddies.clear()
     this.shields.forEach((shield) => shield.destroy())
     this.shields.clear()
+    this.hazardZones.forEach((zone) => zone.destroy())
+    this.hazardZones.clear()
+    this.roomObstacleGraphics.forEach((rect) => rect.destroy())
+    this.roomObstacleGraphics = []
     this.currentRoomCoord = ORIGIN_COORD
     this.currentLevel = 1
     this.floorRoomEntries = []
@@ -175,6 +187,10 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
       this.buddies.clear()
       this.shields.forEach((shield) => shield.destroy())
       this.shields.clear()
+      this.hazardZones.forEach((zone) => zone.destroy())
+      this.hazardZones.clear()
+      this.roomObstacleGraphics.forEach((rect) => rect.destroy())
+      this.roomObstacleGraphics = []
     })
 
     const connection = getConnection()
@@ -422,6 +438,7 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
         hostPlayer.resetInterpolation()
         joinerPlayer.resetInterpolation()
         this.currentRoomCoord = data.roomCoord
+        this.drawRoomObstacles()
       }
 
       hostPlayer.applyReceivedState(data.host)
@@ -433,6 +450,7 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
       this.reconcileItemPickups(data.itemPickups)
       this.reconcileBuddies(data.buddies)
       this.reconcileShields(data.shields)
+      this.reconcileHazardZones(data.hazardZones)
       this.exploredRooms = data.exploredRooms
 
       this.isGameOver = data.isGameOver
@@ -555,6 +573,24 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
     }
   }
 
+  /** Joiner-only: same create/destroy-on-presence reconciliation as reconcileItemPickups — hazard zones don't move either, so no interpolation. */
+  private reconcileHazardZones(received: HazardZoneState[]) {
+    const receivedIds = new Set(received.map((zone) => zone.id))
+
+    for (const [id, zone] of this.hazardZones) {
+      if (!receivedIds.has(id)) {
+        zone.destroy()
+        this.hazardZones.delete(id)
+      }
+    }
+
+    for (const state of received) {
+      if (!this.hazardZones.has(state.id)) {
+        this.hazardZones.set(state.id, new HazardZone(this, state.id, state.pos.x, state.pos.y, state.radius, { simulated: false }))
+      }
+    }
+  }
+
   /** Joiner-only: same reconciliation as reconcileProjectiles — Buddies persist across rooms host-side, but this side just tracks whatever ids are currently reported. */
   private reconcileBuddies(received: FollowerState[]) {
     const receivedIds = new Set(received.map((buddy) => buddy.id))
@@ -595,5 +631,27 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
       }
       shield.applyReceivedState(state.pos)
     }
+  }
+
+  /** Joiner-only, purely visual — redraws this room's obstacle rects from floorRoomEntries (already carries obstacles alongside isBoss/isGolden). No physics: the joiner never locally simulates collision to begin with. */
+  private drawRoomObstacles() {
+    this.roomObstacleGraphics.forEach((rect) => rect.destroy())
+    this.roomObstacleGraphics = []
+
+    const room = getRoomDefinition(this.floorRoomEntries, this.currentRoomCoord)
+    room?.obstacles.forEach((obstacle) => {
+      const color = obstacle.type === 'rock' ? ROCK_COLOR : WATER_COLOR
+      const alpha = obstacle.type === 'rock' ? 1 : 0.6
+      this.roomObstacleGraphics.push(
+        this.add.rectangle(
+          obstacle.x + obstacle.width / 2,
+          obstacle.y + obstacle.height / 2,
+          obstacle.width,
+          obstacle.height,
+          color,
+          alpha,
+        ),
+      )
+    })
   }
 }

@@ -7,6 +7,7 @@ import type { ArchetypeId } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import type { ItemId } from '../gameplay/items'
 import { isKnownItemId } from '../gameplay/items'
+import type { RoomObstacle } from '../rooms/roomLayouts'
 
 export interface KeyState {
   up: boolean
@@ -36,15 +37,17 @@ export interface PauseToggleMessage {
  * Host -> joiner: sent once whenever a level (re)starts, not per-tick —
  * mirrors PauseToggleMessage's discrete, send-on-event shape rather than
  * StateMessage's fixed-rate broadcast. The room list only carries what the
- * joiner needs to render doors/the minimap (coord + isBoss); enemy
- * composition never needs to travel here since enemy instances already
- * arrive via the existing per-room EnemyState reconciliation.
+ * joiner needs to render doors/the minimap/room obstacles (coord + isBoss +
+ * isGolden + obstacles); enemy composition never needs to travel here since
+ * enemy instances already arrive via the existing per-room EnemyState
+ * reconciliation, and enemy *anchors* are host-only bookkeeping the joiner
+ * never needs (it only ever renders live positions, never picks them).
  */
 export interface LevelStartMessage {
   type: 'levelStart'
   level: number
   startCoord: RoomCoord
-  rooms: { coord: RoomCoord; isBoss: boolean; isGolden: boolean }[]
+  rooms: { coord: RoomCoord; isBoss: boolean; isGolden: boolean; obstacles: RoomObstacle[] }[]
 }
 
 export interface Vec2 {
@@ -76,6 +79,15 @@ export interface EnemyState {
   archetype: ArchetypeId
   pos: Vec2
   health: number
+  /** Charger's wind-up tell — the one bit of enemy state genuinely not derivable from position/health alone, always sent (not inferred) same as archetype. */
+  telegraphing: boolean
+}
+
+/** A lingering damage zone (Slime's periodic drop) — stationary, so unlike EnemyState/ProjectileState there's no interpolation target, just an id/position/radius to render until it drops out of the broadcast. */
+export interface HazardZoneState {
+  id: number
+  pos: Vec2
+  radius: number
 }
 
 /**
@@ -134,6 +146,8 @@ export interface StateMessage {
   buddies: FollowerState[]
   /** Every Orbiting Shield in play, both players' combined. */
   shields: FollowerState[]
+  /** Every lingering damage zone currently active in this room (Slime's periodic drop) — room-scoped, not persistent like buddies/shields. */
+  hazardZones: HazardZoneState[]
   isGameOver: boolean
   isPaused: boolean
 }
@@ -202,6 +216,14 @@ function isFollowerState(value: unknown): value is FollowerState {
   return typeof v.id === 'number' && isVec2(v.pos)
 }
 
+function isHazardZoneState(value: unknown): value is HazardZoneState {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const v = value as Record<string, unknown>
+  return typeof v.id === 'number' && isVec2(v.pos) && typeof v.radius === 'number'
+}
+
 function isEnemyState(value: unknown): value is EnemyState {
   if (typeof value !== 'object' || value === null) {
     return false
@@ -212,7 +234,8 @@ function isEnemyState(value: unknown): value is EnemyState {
     typeof v.archetype === 'string' &&
     v.archetype in ARCHETYPES &&
     isVec2(v.pos) &&
-    typeof v.health === 'number'
+    typeof v.health === 'number' &&
+    typeof v.telegraphing === 'boolean'
   )
 }
 
@@ -236,12 +259,32 @@ export function isPauseToggleMessage(data: unknown): data is PauseToggleMessage 
   return typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'pauseToggle'
 }
 
-function isRoomEntry(value: unknown): value is { coord: RoomCoord; isBoss: boolean; isGolden: boolean } {
+function isRoomObstacle(value: unknown): value is RoomObstacle {
   if (typeof value !== 'object' || value === null) {
     return false
   }
   const v = value as Record<string, unknown>
-  return isRoomCoord(v.coord) && typeof v.isBoss === 'boolean' && typeof v.isGolden === 'boolean'
+  return (
+    (v.type === 'rock' || v.type === 'water') &&
+    typeof v.x === 'number' &&
+    typeof v.y === 'number' &&
+    typeof v.width === 'number' &&
+    typeof v.height === 'number'
+  )
+}
+
+function isRoomEntry(value: unknown): value is { coord: RoomCoord; isBoss: boolean; isGolden: boolean; obstacles: RoomObstacle[] } {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const v = value as Record<string, unknown>
+  return (
+    isRoomCoord(v.coord) &&
+    typeof v.isBoss === 'boolean' &&
+    typeof v.isGolden === 'boolean' &&
+    Array.isArray(v.obstacles) &&
+    v.obstacles.every(isRoomObstacle)
+  )
 }
 
 export function isLevelStartMessage(data: unknown): data is LevelStartMessage {
@@ -282,6 +325,8 @@ export function isStateMessage(data: unknown): data is StateMessage {
     v.buddies.every(isFollowerState) &&
     Array.isArray(v.shields) &&
     v.shields.every(isFollowerState) &&
+    Array.isArray(v.hazardZones) &&
+    v.hazardZones.every(isHazardZoneState) &&
     typeof v.isGameOver === 'boolean' &&
     typeof v.isPaused === 'boolean'
   )

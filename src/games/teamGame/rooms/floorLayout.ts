@@ -8,6 +8,7 @@
 // LevelStartMessage in net/syncProtocol.ts.
 
 import type { ArchetypeId } from '../gameplay/enemyArchetypes'
+import type { RoomObstacle } from './roomLayouts'
 
 export type Direction = 'north' | 'south' | 'east' | 'west'
 
@@ -28,6 +29,12 @@ export interface RoomDefinition {
   isBoss?: boolean
   /** Marks the floor's golden room — no enemies, a guaranteed strong-item drop. One per level, see rooms/floorGenerator.ts. */
   isGolden?: boolean
+  /** Room structure (DESIGN.md §9's room-variety stage) — resolved to concrete geometry once at floor-generation time (rooms/floorGenerator.ts's pickRoomObstacles), not a lookup id, since pillar count/placement varies per room. */
+  obstacles: RoomObstacle[]
+  /** Where non-ranged enemy groups (and this room's regular reward drop, if any) spawn. */
+  enemyAnchor: { x: number; y: number }
+  /** Where keepDistance/ranged groups spawn instead — only set for a room whose layout splits it (a water-split room). */
+  rangedEnemyAnchor?: { x: number; y: number }
 }
 
 export function coordsEqual(a: RoomCoord, b: RoomCoord): boolean {

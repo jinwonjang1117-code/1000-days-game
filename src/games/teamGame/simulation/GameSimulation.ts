@@ -6,15 +6,17 @@ import Enemy from '../entities/Enemy'
 import ItemPickup from '../entities/ItemPickup'
 import Buddy from '../entities/Buddy'
 import OrbitingShield from '../entities/OrbitingShield'
+import HazardZone from '../entities/HazardZone'
 import type { EnemyArchetype } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import type { ItemId } from '../gameplay/items'
 import { getItemLabel, randomBoostItemId, randomRewardItemIds, STAT_ITEMS } from '../gameplay/items'
 import { bonusContainersForLevel } from '../gameplay/lives'
-import type { Direction, RoomCoord, RoomDefinition } from '../rooms/floorLayout'
+import type { Direction, RoomCoord, RoomDefinition, RoomEnemyGroup } from '../rooms/floorLayout'
 import { ALL_DIRECTIONS, getRoomDefinition, getNeighborCoord, hasNeighbor, oppositeDirection, coordsEqual } from '../rooms/floorLayout'
 import type { GeneratedFloor } from '../rooms/floorGenerator'
 import { generateFloor } from '../rooms/floorGenerator'
+import type { ObstacleType, RoomObstacle } from '../rooms/roomLayouts'
 import type { MiniMapRoomInfo } from '../ui/MiniMap'
 import { showPickupText, spawnExplosionEffect, playFartSound } from '../ui/cosmeticEffects'
 
@@ -85,6 +87,24 @@ function normalizeAngle(a: number): number {
   return Number(n.toFixed(4))
 }
 
+/**
+ * A projectile-vs-enemy collider registered by spawnEnemy (for an enemy
+ * spawned mid-flight, e.g. a Splitter's children) is deliberately stored in
+ * both roomEnemyColliders (so it's cleaned up when that enemy dies) and
+ * projectileColliders (so it's cleaned up when that projectile is
+ * destroyed) — whichever happens first destroys the shared Collider object,
+ * leaving a dangling reference in the other map. Phaser's Collider.destroy()
+ * nulls out `this.world` and is not itself idempotent (a second call throws
+ * trying to read `.removeCollider` off that null), so every destroy call
+ * site that might touch a possibly-already-shared collider goes through
+ * this guard instead of calling `.destroy()` directly.
+ */
+function destroyCollider(collider: Phaser.Physics.Arcade.Collider) {
+  if (collider.active) {
+    collider.destroy()
+  }
+}
+
 const MOVE_SPEED = 200
 const HOST_COLOR = 0x3355ff
 const JOINER_COLOR = 0xff6633
@@ -114,6 +134,10 @@ const BUDDY_COLOR = 0x33aaff
 /** Radians/sec — shared by every shield on a player so a stack stays evenly spaced while it rotates. */
 const SHIELD_ANGULAR_SPEED = 1.5
 const SHIELD_ORBIT_RADIUS = 50
+
+/** Room obstacles (DESIGN.md §9) — water is translucent so it visually reads as "you can see/shoot across it," unlike a solid rock. */
+const ROCK_COLOR = 0x554433
+const WATER_COLOR = 0x3366cc
 
 /**
  * The read-only shape any UI layer needs to draw doors/minimap/level
@@ -183,6 +207,16 @@ export default class GameSimulation implements RoomUiState {
   private roomEnemyColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
   private nextEnemyId = 0
 
+  // Room structure (DESIGN.md §9) — rebuilt every loadRoom() alongside
+  // enemies/projectiles/pickups. Player-vs-obstacle colliders are wired up
+  // once here at spawn time (players are only ever created once, in the
+  // constructor); enemy-vs-obstacle and projectile-vs-obstacle colliders
+  // are wired from the enemy/projectile side instead (see spawnEnemy /
+  // spawnProjectile) since obstacles always exist first in a room, never
+  // spawned mid-room afterward.
+  private roomObstacles: { shape: Phaser.GameObjects.Rectangle; type: ObstacleType }[] = []
+  private obstacleColliders: Phaser.Physics.Arcade.Collider[] = []
+
   private roomCoord: RoomCoord = ORIGIN_COORD
   /** Rooms whose enemies have already been cleared once — loadRoom skips (re)spawning enemies for these. */
   private clearedRooms: RoomCoord[] = []
@@ -222,6 +256,13 @@ export default class GameSimulation implements RoomUiState {
   private nextItemPickupId = 0
   /** Run-wide, not per-player — a `unique` item (see items.ts) is excluded from future strong-item rolls once anyone has gotten it. No item sets `unique` yet, so this has no visible effect today. */
   private grantedUniqueItems: Set<ItemId> = new Set()
+
+  // Slime's periodic drop (DESIGN.md's enemy-variety pass) — room-scoped
+  // like enemies/projectiles/pickups, not persistent like Buddy/Shield, so
+  // torn down every loadRoom() alongside them.
+  private hazardZones: Map<number, HazardZone> = new Map()
+  private hazardZoneColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
+  private nextHazardZoneId = 0
 
   // Buddy/Orbiting Shield (DESIGN.md §7) — unlike rooms/enemies/projectiles,
   // these persist across room transitions (they follow the player, not the
@@ -336,10 +377,15 @@ export default class GameSimulation implements RoomUiState {
 
     this.roomEnemies.forEach((enemy) => {
       const nearest = this.getNearestPlayerPos(enemy.x, enemy.y)
-      enemy.updateMovement(nearest)
-      const fireAngle = enemy.tryFireAt(nearest, now)
-      if (fireAngle !== null) {
-        this.spawnEnemyProjectile(enemy.x, enemy.y, fireAngle)
+      enemy.updateMovement(nearest, now)
+      const fireAngles = enemy.tryFireAt(nearest, now)
+      fireAngles?.forEach((angle) => this.spawnEnemyProjectile(enemy.x, enemy.y, angle))
+      const summonArchetype = enemy.trySummonAt(now)
+      if (summonArchetype) {
+        this.spawnEnemy(ARCHETYPES[summonArchetype], enemy.x, enemy.y)
+      }
+      if (enemy.tryDropHazardAt(now) && enemy.archetype.hazard) {
+        this.spawnHazardZone(enemy.x, enemy.y, enemy.archetype.hazard.radius, enemy.archetype.hazard.durationMs)
       }
       enemy.refreshVisuals()
     })
@@ -555,6 +601,11 @@ export default class GameSimulation implements RoomUiState {
         id: shield.id,
         pos: { x: shield.x, y: shield.y },
       })),
+      hazardZones: Array.from(this.hazardZones.values()).map((zone) => ({
+        id: zone.id,
+        pos: { x: zone.x, y: zone.y },
+        radius: zone.radius,
+      })),
       isGameOver: this.gameOver,
       isPaused: this.paused,
     }
@@ -566,17 +617,21 @@ export default class GameSimulation implements RoomUiState {
     this.joinerPlayer?.destroy()
     this.projectiles.forEach((projectile) => projectile.destroy())
     this.projectiles.clear()
-    this.projectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.projectileColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.projectileColliders.clear()
     this.enemyProjectiles.forEach((projectile) => projectile.destroy())
     this.enemyProjectiles.clear()
-    this.enemyProjectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.enemyProjectileColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.enemyProjectileColliders.clear()
     this.itemPickups.forEach((pickup) => pickup.destroy())
     this.itemPickups.clear()
-    this.itemPickupColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.itemPickupColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.itemPickupColliders.clear()
-    this.roomEnemyColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.hazardZones.forEach((zone) => zone.destroy())
+    this.hazardZones.clear()
+    this.hazardZoneColliders.forEach((colliders) => colliders.forEach(destroyCollider))
+    this.hazardZoneColliders.clear()
+    this.roomEnemyColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.roomEnemyColliders.clear()
     this.roomEnemies.forEach((enemy) => enemy.destroy())
     this.roomEnemies.clear()
@@ -588,6 +643,10 @@ export default class GameSimulation implements RoomUiState {
     this.hostShields = []
     this.joinerShields.forEach((shield) => shield.destroy())
     this.joinerShields = []
+    this.roomObstacles.forEach((obstacle) => obstacle.shape.destroy())
+    this.roomObstacles = []
+    this.obstacleColliders.forEach(destroyCollider)
+    this.obstacleColliders = []
   }
 
   // ---- Movement / firing ----
@@ -762,6 +821,7 @@ export default class GameSimulation implements RoomUiState {
       coord: room.coord,
       isBoss: !!room.isBoss,
       isGolden: !!room.isGolden,
+      obstacles: room.obstacles,
     }))
     this.explored = [this.currentFloor.startCoord]
     this.clearedRooms = []
@@ -792,19 +852,24 @@ export default class GameSimulation implements RoomUiState {
    * are already at their normal spawn points.
    */
   private loadRoom(coord: RoomCoord, enteredFrom?: Direction) {
-    this.roomEnemyColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.roomEnemyColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.roomEnemyColliders.clear()
     this.roomEnemies.forEach((enemy) => enemy.destroy())
     this.roomEnemies.clear()
 
+    this.roomObstacles.forEach((obstacle) => obstacle.shape.destroy())
+    this.roomObstacles = []
+    this.obstacleColliders.forEach(destroyCollider)
+    this.obstacleColliders = []
+
     // Projectiles don't carry through a door.
     this.projectiles.forEach((projectile) => projectile.destroy())
     this.projectiles.clear()
-    this.projectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.projectileColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.projectileColliders.clear()
     this.enemyProjectiles.forEach((projectile) => projectile.destroy())
     this.enemyProjectiles.clear()
-    this.enemyProjectileColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.enemyProjectileColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.enemyProjectileColliders.clear()
 
     // Unlike projectiles, uncollected pickups DO carry through a door —
@@ -822,8 +887,15 @@ export default class GameSimulation implements RoomUiState {
     }
     this.itemPickups.forEach((pickup) => pickup.destroy())
     this.itemPickups.clear()
-    this.itemPickupColliders.forEach((colliders) => colliders.forEach((collider) => collider.destroy()))
+    this.itemPickupColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.itemPickupColliders.clear()
+
+    // Unlike item pickups, hazard zones don't carry through a door — they're a
+    // consequence of a Slime that's now behind you, same lifetime class as projectiles.
+    this.hazardZones.forEach((zone) => zone.destroy())
+    this.hazardZones.clear()
+    this.hazardZoneColliders.forEach((colliders) => colliders.forEach(destroyCollider))
+    this.hazardZoneColliders.clear()
 
     if (enteredFrom) {
       const [posA, posB] = getEntryPositions(enteredFrom)
@@ -837,6 +909,8 @@ export default class GameSimulation implements RoomUiState {
     }
 
     const room = getRoomDefinition(this.currentFloor?.rooms ?? [], coord)
+    room?.obstacles.forEach((rect) => this.spawnObstacle(rect))
+
     const alreadyCleared = this.clearedRooms.some((cleared) => coordsEqual(cleared, coord))
     if (room && !alreadyCleared) {
       this.spawnRoomEnemies(room)
@@ -857,18 +931,55 @@ export default class GameSimulation implements RoomUiState {
     return `${coord.x},${coord.y}`
   }
 
+  // ---- Obstacles ----
+
+  /** Static, room-structure-only body (DESIGN.md §9) — rock blocks movement and projectiles, water blocks movement only. Wires a collider against both players right away; enemy/projectile colliders are wired from the enemy/projectile side instead (see spawnEnemy/spawnProjectile), since obstacles are always spawned before either can exist in a fresh room. */
+  private spawnObstacle(rect: RoomObstacle) {
+    const color = rect.type === 'rock' ? ROCK_COLOR : WATER_COLOR
+    const alpha = rect.type === 'rock' ? 1 : 0.6
+    const shape = this.scene.add.rectangle(rect.x + rect.width / 2, rect.y + rect.height / 2, rect.width, rect.height, color, alpha)
+    this.scene.physics.add.existing(shape, true)
+    this.roomObstacles.push({ shape, type: rect.type })
+
+    this.obstacleColliders.push(this.scene.physics.add.collider(this.hostPlayer.square, shape))
+    if (this.joinerPlayer) {
+      this.obstacleColliders.push(this.scene.physics.add.collider(this.joinerPlayer.square, shape))
+    }
+  }
+
   // ---- Enemies ----
 
-  /** One room-clear spawn wave, grouped by archetype. */
+  /**
+   * One room-clear spawn wave, grouped by archetype and bucketed by anchor
+   * — a keepDistance/ranged group spawns at the room's rangedEnemyAnchor if
+   * it has one (a water-split room), everything else at enemyAnchor. Each
+   * bucket lays its groups out along the same centered-line formula used
+   * before obstacles existed, just parameterized by that bucket's anchor
+   * instead of the old hardcoded ENEMY_SPAWN_CENTER — a room with only one
+   * anchor (the common case) produces identical output to before.
+   */
   private spawnRoomEnemies(room: RoomDefinition) {
-    let index = 0
-    const total = room.enemies.reduce((sum, group) => sum + group.count, 0)
+    const buckets = new Map<string, { anchor: { x: number; y: number }; groups: RoomEnemyGroup[] }>()
     for (const group of room.enemies) {
-      const archetype = ARCHETYPES[group.archetype]
-      for (let i = 0; i < group.count; i++) {
-        const x = ENEMY_SPAWN_CENTER.x + (index - (total - 1) / 2) * ENEMY_SPAWN_SPACING
-        this.spawnEnemy(archetype, x, ENEMY_SPAWN_CENTER.y)
-        index++
+      const isRanged = ARCHETYPES[group.archetype].movement === 'keepDistance'
+      const anchor = (isRanged && room.rangedEnemyAnchor) || room.enemyAnchor
+      const key = `${anchor.x},${anchor.y}`
+      if (!buckets.has(key)) {
+        buckets.set(key, { anchor, groups: [] })
+      }
+      buckets.get(key)!.groups.push(group)
+    }
+
+    for (const { anchor, groups } of buckets.values()) {
+      let index = 0
+      const total = groups.reduce((sum, group) => sum + group.count, 0)
+      for (const group of groups) {
+        const archetype = ARCHETYPES[group.archetype]
+        for (let i = 0; i < group.count; i++) {
+          const x = anchor.x + (index - (total - 1) / 2) * ENEMY_SPAWN_SPACING
+          this.spawnEnemy(archetype, x, anchor.y)
+          index++
+        }
       }
     }
   }
@@ -919,6 +1030,16 @@ export default class GameSimulation implements RoomUiState {
       }
     }
 
+    // Both rock and water block enemy movement (only rock also blocks
+    // projectiles — see spawnProjectile/spawnBuddyProjectile/
+    // spawnEnemyProjectile). Registered from the enemy side only: a room's
+    // obstacles are always spawned before its enemies (loadRoom spawns
+    // obstacles, then spawnRoomEnemies), so there's no case where an
+    // obstacle needs to reach out to an enemy that already existed first.
+    this.roomObstacles.forEach((obstacle) => {
+      colliders.push(this.scene.physics.add.collider(enemy.square, obstacle.shape))
+    })
+
     this.roomEnemyColliders.set(id, colliders)
   }
 
@@ -928,7 +1049,7 @@ export default class GameSimulation implements RoomUiState {
     const deathX = enemy.x
     const deathY = enemy.y
 
-    this.roomEnemyColliders.get(enemyId)?.forEach((collider) => collider.destroy())
+    this.roomEnemyColliders.get(enemyId)?.forEach(destroyCollider)
     this.roomEnemyColliders.delete(enemyId)
     enemy.destroy()
     this.roomEnemies.delete(enemyId)
@@ -994,15 +1115,21 @@ export default class GameSimulation implements RoomUiState {
       return
     }
 
+    // Regular room — reads this room's own enemyAnchor instead of the bare
+    // ENEMY_SPAWN_CENTER constant, so a reward can never land inside a
+    // pillar room's rocks (golden/boss above stay on the fixed constants
+    // since those room types are always the obstacle-free empty layout).
+    const anchor = getRoomDefinition(this.currentFloor.rooms, coord)?.enemyAnchor ?? ENEMY_SPAWN_CENTER
+
     // Global gate: boost drops only happen with ROOM_DROP_CHANCE probability.
     if (Math.random() < ROOM_DROP_CHANCE) {
       const boostId = randomBoostItemId()
-      this.spawnItemPickup(boostId, ENEMY_SPAWN_CENTER.x - REGULAR_REWARD_SPACING / 2, ENEMY_SPAWN_CENTER.y)
+      this.spawnItemPickup(boostId, anchor.x - REGULAR_REWARD_SPACING / 2, anchor.y)
     }
 
     // Life item still spawns independently at LIFE_ITEM_CHANCE.
     if (Math.random() < LIFE_ITEM_CHANCE) {
-      this.spawnItemPickup('heart', ENEMY_SPAWN_CENTER.x + REGULAR_REWARD_SPACING / 2, ENEMY_SPAWN_CENTER.y)
+      this.spawnItemPickup('heart', anchor.x + REGULAR_REWARD_SPACING / 2, anchor.y)
     }
   }
 
@@ -1031,7 +1158,7 @@ export default class GameSimulation implements RoomUiState {
   private destroyItemPickup(id: number) {
     this.itemPickups.get(id)?.destroy()
     this.itemPickups.delete(id)
-    this.itemPickupColliders.get(id)?.forEach((collider) => collider.destroy())
+    this.itemPickupColliders.get(id)?.forEach(destroyCollider)
     this.itemPickupColliders.delete(id)
   }
 
@@ -1044,6 +1171,33 @@ export default class GameSimulation implements RoomUiState {
     if (itemId === 'fart') {
       playFartSound()
     }
+  }
+
+  // ---- Hazard zones ----
+
+  /** Slime's periodic drop — a lingering damage zone that expires on its own after durationMs. Damage reuses handleHit directly, so invincibility frames already apply for free (no separate per-zone cooldown needed). */
+  private spawnHazardZone(x: number, y: number, radius: number, durationMs: number) {
+    const id = this.nextHazardZoneId++
+    const zone = new HazardZone(this.scene, id, x, y, radius, { simulated: true })
+    this.hazardZones.set(id, zone)
+
+    const colliders: Phaser.Physics.Arcade.Collider[] = []
+    const hostPlayer = this.hostPlayer
+    colliders.push(this.scene.physics.add.overlap(hostPlayer.square, zone.shape, () => this.handleHit(hostPlayer)))
+    const joinerPlayer = this.joinerPlayer
+    if (joinerPlayer) {
+      colliders.push(this.scene.physics.add.overlap(joinerPlayer.square, zone.shape, () => this.handleHit(joinerPlayer)))
+    }
+    this.hazardZoneColliders.set(id, colliders)
+
+    this.scene.time.delayedCall(durationMs, () => this.destroyHazardZone(id))
+  }
+
+  private destroyHazardZone(id: number) {
+    this.hazardZones.get(id)?.destroy()
+    this.hazardZones.delete(id)
+    this.hazardZoneColliders.get(id)?.forEach(destroyCollider)
+    this.hazardZoneColliders.delete(id)
   }
 
   // ---- Projectiles ----
@@ -1072,6 +1226,19 @@ export default class GameSimulation implements RoomUiState {
         }),
       )
     })
+    // Rocks destroy a shot on contact — water is skipped, shots pass over
+    // it freely. Registered from the projectile side since a room's
+    // obstacles are always spawned before any projectile can exist in it.
+    this.roomObstacles.forEach((obstacle) => {
+      if (obstacle.type !== 'rock') {
+        return
+      }
+      colliders.push(
+        this.scene.physics.add.overlap(projectile.shape, obstacle.shape, () => {
+          this.destroyProjectile(id)
+        }),
+      )
+    })
     this.projectileColliders.set(id, colliders)
   }
 
@@ -1093,13 +1260,23 @@ export default class GameSimulation implements RoomUiState {
         }),
       )
     })
+    this.roomObstacles.forEach((obstacle) => {
+      if (obstacle.type !== 'rock') {
+        return
+      }
+      colliders.push(
+        this.scene.physics.add.overlap(projectile.shape, obstacle.shape, () => {
+          this.destroyProjectile(id)
+        }),
+      )
+    })
     this.projectileColliders.set(id, colliders)
   }
 
   private destroyProjectile(id: number) {
     this.projectiles.get(id)?.destroy()
     this.projectiles.delete(id)
-    this.projectileColliders.get(id)?.forEach((collider) => collider.destroy())
+    this.projectileColliders.get(id)?.forEach(destroyCollider)
     this.projectileColliders.delete(id)
   }
 
@@ -1166,13 +1343,23 @@ export default class GameSimulation implements RoomUiState {
         ),
       )
     }
+    this.roomObstacles.forEach((obstacle) => {
+      if (obstacle.type !== 'rock') {
+        return
+      }
+      colliders.push(
+        this.scene.physics.add.overlap(projectile.shape, obstacle.shape, () => {
+          this.destroyEnemyProjectile(id)
+        }),
+      )
+    })
     this.enemyProjectileColliders.set(id, colliders)
   }
 
   private destroyEnemyProjectile(id: number) {
     this.enemyProjectiles.get(id)?.destroy()
     this.enemyProjectiles.delete(id)
-    this.enemyProjectileColliders.get(id)?.forEach((collider) => collider.destroy())
+    this.enemyProjectileColliders.get(id)?.forEach(destroyCollider)
     this.enemyProjectileColliders.delete(id)
   }
 

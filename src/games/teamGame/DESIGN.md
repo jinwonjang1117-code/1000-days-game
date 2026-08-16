@@ -179,6 +179,7 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
   - Enemy count per room also scales with level, so difficulty ramps via both variety and volume, not mixing alone.
 - **Final boss** should have distinct phases that favor different roles (e.g. a Tank phase rewarding sustained DoT, a Swarm-summon phase rewarding AoE, a flee/snipe phase rewarding Gravity) so the fight doesn't just reward "whichever role does the most raw damage."
 - **Single-sitting runs only** — no save/resume across sessions. This is why the pause system (section 2) matters — a 70-90 room run needs a real pause, not just a nice-to-have.
+- **Room structure variety** (built — `rooms/roomLayouts.ts`, `rooms/floorGenerator.ts`'s `pickRoomObstacles`): most rooms stay open, but a room can get **rock pillars** (4-8, scattered, block movement *and* projectiles) or, if it rolled a `keepDistance`/ranged enemy group (currently just Ranged shooter), a **water split** instead (blocks movement only — shots pass over freely) that keeps that group genuinely out of melee reach on the far side. Start/boss/golden rooms always stay open. Layouts are room-intrinsic, not entry-direction-aware — a small accepted rough edge, not a bug.
 
 ---
 
@@ -209,6 +210,17 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
 | Ranged shooter | Stays at distance, fires at players | Gravity (drag into range), Laser | Poison (too slow) |
 | Splitter | Splits into two weaker enemies on death | Ice, Electric (control the split) | Bomb (can worsen the mess) |
 
+**Second wave (built)** — added because the original 5 read as too passive (a fixed-speed beeline or a stationary poke). Role-favor columns aren't filled in yet since roles don't exist as a build target — revisit once they do.
+
+| Archetype | Behavior |
+|---|---|
+| Erratic | Ignores players entirely — periodically retargets to a random direction *and* random speed (50-100% of base). Hard to lead shots against; deliberately not tanky, since the difficulty is dodging it, not surviving it. |
+| Charger | Idle until a player is within range, then telegraphs (brief pause + tint) before committing to a straight-line dash at high speed toward wherever they were standing — doesn't re-track mid-dash. Punishes standing still. |
+| Summoner | Keeps its distance like a Ranged shooter but never attacks directly — periodically spawns a random pick from its summon pool near itself, regardless of player proximity (Weak: just Weak Swarmer; Strong: Weak Swarmer *or* Weak Moving Shooter, mixing real ranged pressure into the filler). Has to be prioritized or the room snowballs. |
+| Spread Shooter | A Ranged shooter variant whose shot is a multi-projectile fan instead of one, mirroring the player's own Multi Shot spread math. Covers an arc, not a line. |
+| Berserker | A plain melee chaser until health drops to/below half, at which point its speed jumps and it stays visibly tinted for the rest of the fight. Punishes slow chip damage. |
+| Slime | A slow melee chaser that, while alive, periodically drops a lingering damage zone at its current position (a few seconds, then it fades). Death itself is just a normal death — the hazard is a while-alive mechanic, not an on-death one. Real area denial through a doorway or chokepoint. |
+
 ---
 
 ## 11. Characters
@@ -232,7 +244,7 @@ Organized by priority — **Core** is what you need to start implementing gamepl
 - [ ] **Life/heart icon** (UI + pickup)
 - [ ] **Coin icon** (simple, even though the shop is deferred — cheap to make now)
 
-### Sprites — Room structures (rocks/water, §9)
+### Sprites — Room structures (rocks/water, §8 — built as colored rectangles, this is the real-art follow-up)
 - [ ] **Rock obstacle** — solid, blocks movement and shots
 - [ ] **Water tile** — blocks movement only, needs to visually read as "walkable-looking but isn't" vs. rock's "obviously solid," since the two behave differently
 - [ ] Both need edge/transition tiles against the plain floor, not just a flat color block, or the room reads as broken rather than intentional

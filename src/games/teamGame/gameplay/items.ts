@@ -80,25 +80,31 @@ export interface ItemDefinition {
 }
 
 export const BOOST_ITEMS: Record<BoostItemId, ItemDefinition> = {
+  // Constant-rate (additive), not multiplying — a second (or fifth) pickup
+  // of the same boost adds the same fixed step every time instead of
+  // compounding off an ever-growing base. Each step size matches what the
+  // *first* pickup already gave under the old multiplicative tuning
+  // (1 * 1.3 === 1 + 0.3, etc.), so only stacking changes, not early feel.
   speed: {
     id: 'speed',
     label: '이동속도 상승',
     color: 0x66ddff,
     weight: 1,
-    apply: (stats) => ({ ...stats, moveSpeedMultiplier: stats.moveSpeedMultiplier * 1.3 }),
+    apply: (stats) => ({ ...stats, moveSpeedMultiplier: stats.moveSpeedMultiplier + 0.3 }),
   },
   fireRate: {
     id: 'fireRate',
     label: '공격속도 상승',
     color: 0xffcc44,
     weight: 1,
-    apply: (stats) => ({ ...stats, potatoFireRateMultiplier: stats.potatoFireRateMultiplier * 0.7 }),
+    // Lower = faster, so this counts down — floored well above 0 so fire rate can't hit zero/negative.
+    apply: (stats) => ({ ...stats, potatoFireRateMultiplier: Math.max(0.15, stats.potatoFireRateMultiplier - 0.3) }),
   },
   damage: {
     id: 'damage',
     label: '공격력 상승',
     color: 0xff6666,
-    weight: 0.25,
+    weight: 0.5,
     apply: (stats) => ({ ...stats, potatoDamage: stats.potatoDamage + 1 }),
   },
   projectileSpeed: {
@@ -106,21 +112,21 @@ export const BOOST_ITEMS: Record<BoostItemId, ItemDefinition> = {
     label: '감자 속도 상승',
     color: 0xffee88,
     weight: 1,
-    apply: (stats) => ({ ...stats, potatoSpeedMultiplier: stats.potatoSpeedMultiplier * 1.4 }),
+    apply: (stats) => ({ ...stats, potatoSpeedMultiplier: stats.potatoSpeedMultiplier + 0.4 }),
   },
   range: {
     id: 'range',
     label: '사거리 상승',
     color: 0x88ff99,
     weight: 1,
-    apply: (stats) => ({ ...stats, potatoRangeMultiplier: stats.potatoRangeMultiplier * 1.3 }),
+    apply: (stats) => ({ ...stats, potatoRangeMultiplier: stats.potatoRangeMultiplier + 0.3 }),
   },
   size: {
     id: 'size',
     label: '감자 크기 상승',
     color: 0xcc99ff,
     weight: 0.75,
-    apply: (stats) => ({ ...stats, potatoSizeMultiplier: stats.potatoSizeMultiplier * 1.4 }),
+    apply: (stats) => ({ ...stats, potatoSizeMultiplier: stats.potatoSizeMultiplier + 0.4 }),
   },
   invincibility: {
     id: 'invincibility',

@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import type { RoomCoord } from '../rooms/floorLayout'
 import { coordsEqual, getNeighborCoord, ALL_DIRECTIONS } from '../rooms/floorLayout'
+import type { RoomObstacle } from '../rooms/roomLayouts'
 
 const ROOM_SQUARE_SIZE = 14
 const ROOM_GAP = 4
@@ -19,6 +20,8 @@ export interface MiniMapRoomInfo {
   coord: RoomCoord
   isBoss: boolean
   isGolden: boolean
+  /** Not used by the minimap itself — carried here purely so this already-shared per-room shape gets it to the joiner too, same as isBoss/isGolden (see DevTestScene's obstacle rendering). */
+  obstacles: RoomObstacle[]
 }
 
 /**
