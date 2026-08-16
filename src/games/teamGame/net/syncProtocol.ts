@@ -81,6 +81,8 @@ export interface EnemyState {
   health: number
   /** Charger's wind-up tell — the one bit of enemy state genuinely not derivable from position/health alone, always sent (not inferred) same as archetype. */
   telegraphing: boolean
+  /** Fixed for this enemy's lifetime (false only for a Chest mimic's ambush Swarmers) — sent every tick same as archetype so the joiner can pass it into the Enemy constructor when a new id first appears. */
+  countsForClear: boolean
 }
 
 /** A lingering damage zone (Slime's periodic drop) — stationary, so unlike EnemyState/ProjectileState there's no interpolation target, just an id/position/radius to render until it drops out of the broadcast. */
@@ -88,6 +90,12 @@ export interface HazardZoneState {
   id: number
   pos: Vec2
   radius: number
+}
+
+/** A locked treasure chest (DESIGN.md §9) — stationary like a hazard zone, just an id/position until it drops out of the broadcast (opened). */
+export interface ChestState {
+  id: number
+  pos: Vec2
 }
 
 /**
@@ -150,6 +158,12 @@ export interface StateMessage {
   hazardZones: HazardZoneState[]
   isGameOver: boolean
   isPaused: boolean
+  /** Team-shared, not per-player — see GameSimulation's coinCount field. Nothing spends this yet (roadmap stage 13, the future shop). */
+  coins: number
+  /** Team-shared, not per-player — opens Chests. See GameSimulation's keyCount field. */
+  keys: number
+  /** At most one per room — a locked Chest currently sitting in the room, or empty if this room has none / it's already been opened. */
+  chests: ChestState[]
 }
 
 function isKeyState(value: unknown): value is KeyState {
@@ -224,6 +238,14 @@ function isHazardZoneState(value: unknown): value is HazardZoneState {
   return typeof v.id === 'number' && isVec2(v.pos) && typeof v.radius === 'number'
 }
 
+function isChestState(value: unknown): value is ChestState {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const v = value as Record<string, unknown>
+  return typeof v.id === 'number' && isVec2(v.pos)
+}
+
 function isEnemyState(value: unknown): value is EnemyState {
   if (typeof value !== 'object' || value === null) {
     return false
@@ -235,7 +257,8 @@ function isEnemyState(value: unknown): value is EnemyState {
     v.archetype in ARCHETYPES &&
     isVec2(v.pos) &&
     typeof v.health === 'number' &&
-    typeof v.telegraphing === 'boolean'
+    typeof v.telegraphing === 'boolean' &&
+    typeof v.countsForClear === 'boolean'
   )
 }
 
@@ -328,6 +351,10 @@ export function isStateMessage(data: unknown): data is StateMessage {
     Array.isArray(v.hazardZones) &&
     v.hazardZones.every(isHazardZoneState) &&
     typeof v.isGameOver === 'boolean' &&
-    typeof v.isPaused === 'boolean'
+    typeof v.isPaused === 'boolean' &&
+    typeof v.coins === 'number' &&
+    typeof v.keys === 'number' &&
+    Array.isArray(v.chests) &&
+    v.chests.every(isChestState)
   )
 }

@@ -11,6 +11,7 @@ import type {
   ItemPickupState,
   FollowerState,
   HazardZoneState,
+  ChestState,
 } from '../net/syncProtocol'
 import { isInputMessage, isPauseToggleMessage, isLevelStartMessage, isStateMessage } from '../net/syncProtocol'
 import Player from '../entities/Player'
@@ -20,6 +21,7 @@ import ItemPickup from '../entities/ItemPickup'
 import Buddy from '../entities/Buddy'
 import OrbitingShield from '../entities/OrbitingShield'
 import HazardZone from '../entities/HazardZone'
+import Chest from '../entities/Chest'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import { getItemLabel } from '../gameplay/items'
 import type { Direction, RoomCoord } from '../rooms/floorLayout'
@@ -96,12 +98,15 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
   exploredRooms: RoomCoord[] = []
   isGameOver = false
   isPaused = false
+  coins = 0
+  keys = 0
   private projectiles: Map<number, Projectile> = new Map()
   private enemyProjectiles: Map<number, Projectile> = new Map()
   private itemPickups: Map<number, ItemPickup> = new Map()
   private buddies: Map<number, Buddy> = new Map()
   private shields: Map<number, OrbitingShield> = new Map()
   private hazardZones: Map<number, HazardZone> = new Map()
+  private chests: Map<number, Chest> = new Map()
   /** Purely visual — redrawn from floorRoomEntries whenever currentRoomCoord changes (see reconcileRoomObstacles). No physics: the joiner never locally simulates collision to begin with. */
   private roomObstacleGraphics: Phaser.GameObjects.Rectangle[] = []
 
@@ -147,6 +152,8 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     this.shields.clear()
     this.hazardZones.forEach((zone) => zone.destroy())
     this.hazardZones.clear()
+    this.chests.forEach((chest) => chest.destroy())
+    this.chests.clear()
     this.roomObstacleGraphics.forEach((rect) => rect.destroy())
     this.roomObstacleGraphics = []
     this.currentRoomCoord = ORIGIN_COORD
@@ -187,6 +194,8 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
       this.shields.clear()
       this.hazardZones.forEach((zone) => zone.destroy())
       this.hazardZones.clear()
+      this.chests.forEach((chest) => chest.destroy())
+      this.chests.clear()
       this.roomObstacleGraphics.forEach((rect) => rect.destroy())
       this.roomObstacleGraphics = []
     })
@@ -330,7 +339,12 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
   }
 
   isRoomClear(): boolean {
-    return this.roomEnemies.size === 0
+    for (const enemy of this.roomEnemies.values()) {
+      if (enemy.countsForClear) {
+        return false
+      }
+    }
+    return true
   }
 
   isDirectionOpen(direction: Direction): boolean {
@@ -460,10 +474,13 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
       this.reconcileBuddies(data.buddies)
       this.reconcileShields(data.shields)
       this.reconcileHazardZones(data.hazardZones)
+      this.reconcileChests(data.chests)
       this.exploredRooms = data.exploredRooms
 
       this.isGameOver = data.isGameOver
       this.isPaused = data.isPaused
+      this.coins = data.coins
+      this.keys = data.keys
       if (data.isPaused) {
         this.hud?.showPauseMenu()
       } else {
@@ -492,7 +509,10 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     for (const state of received) {
       let enemy = this.roomEnemies.get(state.id)
       if (!enemy) {
-        enemy = new Enemy(this, state.id, ARCHETYPES[state.archetype], state.pos.x, state.pos.y, { simulated: false })
+        enemy = new Enemy(this, state.id, ARCHETYPES[state.archetype], state.pos.x, state.pos.y, {
+          simulated: false,
+          countsForClear: state.countsForClear,
+        })
         this.roomEnemies.set(state.id, enemy)
       }
       enemy.applyReceivedState(state)
@@ -596,6 +616,24 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     for (const state of received) {
       if (!this.hazardZones.has(state.id)) {
         this.hazardZones.set(state.id, new HazardZone(this, state.id, state.pos.x, state.pos.y, state.radius, { simulated: false }))
+      }
+    }
+  }
+
+  /** Joiner-only: same create/destroy-on-presence reconciliation as reconcileHazardZones — at most one entry, but shares the same array-based reconciliation shape as everything else rather than special-casing a single nullable field. */
+  private reconcileChests(received: ChestState[]) {
+    const receivedIds = new Set(received.map((chest) => chest.id))
+
+    for (const [id, chest] of this.chests) {
+      if (!receivedIds.has(id)) {
+        chest.destroy()
+        this.chests.delete(id)
+      }
+    }
+
+    for (const state of received) {
+      if (!this.chests.has(state.id)) {
+        this.chests.set(state.id, new Chest(this, state.id, state.pos.x, state.pos.y, { simulated: false }))
       }
     }
   }

@@ -26,7 +26,10 @@ export type StrongItemId =
   | 'heavyShot'
   | 'buddy'
   | 'orbitingShield'
-export type ItemId = BoostItemId | StrongItemId | 'heart'
+// 'coin'/'key' are both team-shared, not per-player, nothing spends them
+// yet — groundwork for the future shop (coin) and the treasure chest
+// feature (key), see GameSimulation's `coins`/`keys` fields.
+export type ItemId = BoostItemId | StrongItemId | 'heart' | 'coin' | 'key'
 
 export interface PlayerStats {
   moveSpeedMultiplier: number
@@ -289,9 +292,15 @@ export function getItemLabel(id: ItemId): string {
   if (id === 'heart') {
     return '하트 (생명 회복)'
   }
+  if (id === 'coin') {
+    return '코인'
+  }
+  if (id === 'key') {
+    return '열쇠'
+  }
   return STAT_ITEMS[id].label
 }
 
 export function isKnownItemId(id: string): id is ItemId {
-  return id === 'heart' || id in BOOST_ITEMS || id in STRONG_ITEMS
+  return id === 'heart' || id === 'coin' || id === 'key' || id in BOOST_ITEMS || id in STRONG_ITEMS
 }

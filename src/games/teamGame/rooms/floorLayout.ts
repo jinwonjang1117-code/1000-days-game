@@ -35,6 +35,10 @@ export interface RoomDefinition {
   enemyAnchor: { x: number; y: number }
   /** Where keepDistance/ranged groups spawn instead — only set for a room whose layout splits it (a water-split room). */
   rangedEnemyAnchor?: { x: number; y: number }
+  /** Where this room's Treasure Chest sits, if it has one (DESIGN.md §9) — resolved from the room's obstacle layout same as enemyAnchor, always present even when hasChest is falsy. */
+  chestAnchor: { x: number; y: number }
+  /** Rolled once at floor-generation time (rooms/floorGenerator.ts) — regular rooms only, see CHEST_ROOM_CHANCE. */
+  hasChest?: boolean
 }
 
 export function coordsEqual(a: RoomCoord, b: RoomCoord): boolean {

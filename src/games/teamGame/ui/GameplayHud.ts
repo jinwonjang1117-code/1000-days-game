@@ -82,6 +82,20 @@ const LEVEL_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#ffcc66',
 }
 
+/** Team-shared, not per-player — mirrors levelText's bottom-corner placement but on the opposite side. Nothing spends coins yet (roadmap stage 13's future shop); this is just visibility into the count. */
+const COIN_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '16px',
+  color: '#ffd700',
+}
+
+/** Team-shared, not per-player — stacked just above coinText in the same bottom-left corner. Opens Chests (DESIGN.md §9). */
+const KEY_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '16px',
+  color: '#cccccc',
+}
+
 /** Own hearts (top-left) — full size, this is "your" life total. */
 const OWN_HEARTS_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -166,6 +180,8 @@ export default class GameplayHud {
   private readonly bossHoleGraphic: Phaser.GameObjects.Arc
   private readonly miniMap: MiniMap
   private readonly levelText: Phaser.GameObjects.Text
+  private readonly coinText: Phaser.GameObjects.Text
+  private readonly keyText: Phaser.GameObjects.Text
   private readonly ownHeartsText: Phaser.GameObjects.Text
   private readonly partnerHeartsText: Phaser.GameObjects.Text
   private gameOverText?: Phaser.GameObjects.Text
@@ -208,12 +224,14 @@ export default class GameplayHud {
       .text(WORLD_WIDTH - MINI_MAP_MARGIN, WORLD_HEIGHT, '', LEVEL_TEXT_STYLE)
       .setOrigin(1, 1)
       .setDepth(150)
+    this.coinText = this.scene.add.text(HEARTS_MARGIN, WORLD_HEIGHT, '', COIN_TEXT_STYLE).setOrigin(0, 1).setDepth(150)
+    this.keyText = this.scene.add.text(HEARTS_MARGIN, WORLD_HEIGHT - 22, '', KEY_TEXT_STYLE).setOrigin(0, 1).setDepth(150)
     this.ownHeartsText = this.scene.add.text(HEARTS_MARGIN, HEARTS_MARGIN, '', OWN_HEARTS_STYLE).setOrigin(0, 0).setDepth(150)
     this.partnerHeartsText = this.scene.add
       .text(WORLD_WIDTH - MINI_MAP_MARGIN, MINI_MAP_MARGIN, '', PARTNER_HEARTS_STYLE)
       .setOrigin(1, 0)
       .setDepth(150)
-    this.sharedUiObjects.push(this.levelText, this.ownHeartsText, this.partnerHeartsText)
+    this.sharedUiObjects.push(this.levelText, this.coinText, this.keyText, this.ownHeartsText, this.partnerHeartsText)
   }
 
   /** Call once per tick (host/solo: every frame) or once per received message (joiner) — redraws doors, refreshes the minimap/level text, and shows the game-over text once state.isGameOver. */
@@ -242,6 +260,8 @@ export default class GameplayHud {
       this.levelText.setText(`레벨 ${state.currentLevel}`)
     }
     this.miniMap.refresh(state.exploredRooms, state.currentRoomCoord)
+    this.coinText.setText(`코인 ${state.coins}`)
+    this.keyText.setText(`열쇠 ${state.keys}`)
 
     this.ownHeartsText.setText(heartRow(state.ownLives, state.ownMaxLives))
     this.partnerHeartsText.setText(state.partnerLives === null ? '' : heartRow(state.partnerLives, state.partnerMaxLives ?? 0))

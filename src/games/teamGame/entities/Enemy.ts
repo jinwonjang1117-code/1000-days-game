@@ -29,6 +29,8 @@ const HEALTH_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 
 export interface EnemyOptions {
   simulated: boolean
+  /** Defaults to true. False for a Chest mimic's ambush Swarmers (GameSimulation.handleChestTouch) — they're real, fightable enemies, but shouldn't block the room from reading as clear/keep its doors from staying open, since the "real" fight was already won before the chest was even touched. */
+  countsForClear?: boolean
 }
 
 /**
@@ -44,6 +46,7 @@ export interface EnemyOptions {
 export default class Enemy {
   readonly id: number
   readonly archetype: EnemyArchetype
+  readonly countsForClear: boolean
   readonly square: Phaser.GameObjects.Rectangle
   private readonly healthText: Phaser.GameObjects.Text
   private readonly body: Phaser.Physics.Arcade.Body | null
@@ -74,6 +77,7 @@ export default class Enemy {
   constructor(scene: Phaser.Scene, id: number, archetype: EnemyArchetype, x: number, y: number, options: EnemyOptions) {
     this.id = id
     this.archetype = archetype
+    this.countsForClear = options.countsForClear ?? true
     this.health = archetype.maxHealth
     this.healthTextOffset = archetype.size / 2 + HEALTH_TEXT_OFFSET_BASE
 
@@ -307,6 +311,7 @@ export default class Enemy {
       pos: { x: this.square.x, y: this.square.y },
       health: this.health,
       telegraphing: this.telegraphing,
+      countsForClear: this.countsForClear,
     }
   }
 

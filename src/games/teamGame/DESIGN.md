@@ -125,8 +125,10 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
    - **Heart Container** (stacks) — +1 max lives, fills the new capacity immediately (§3)
 6. **Role items** — define/change which of the 7 roles a player has (§5). Sourced the same way as strong items (golden/boss rooms), but a **separate, single-equip category**: picking one up replaces whatever role you currently had, it doesn't stack. No scheduled drops anymore — purely find-based, including no role at all being a normal early-run state.
 7. **Devil's Room items** — exclusive to the Devil's Room (§9), never found anywhere else. Deliberately risk/reward: most cost something real (usually a max heart container) for an outsized payoff.
+8. **Coins** — currency, groundwork for a future shop (§13, not yet designed). **Team-shared, not per-player** — one pool for the whole run, matching the shared-room co-op model. Regular room-clear drop, same chance class as life items; nothing spends them yet.
+9. **Keys** — opens a Treasure Chest (§9). **Team-shared, not per-player**, same pooling as coins. Regular room-clear drop (20% of clears), unconditional like coin/life — not gated by the boost tier's no-hit requirement.
 
-**Mystery pickups** (settled): every regular-tier pickup (boost, life, and the joke Fart item below) looks identical on the ground — one generic unidentified visual — so the effect is only revealed on pickup, not before. Strong items, role items, and Devil's Room items are all the exception: they're visually identified, since they're an earned reward rather than a grab-bag roll.
+**Mystery pickups** (settled): every regular-tier pickup (boost, life, coin, key, and the joke Fart item below) looks identical on the ground — one generic unidentified visual — so the effect is only revealed on pickup, not before. Strong items, role items, and Devil's Room items are all the exception: they're visually identified, since they're an earned reward rather than a grab-bag roll.
 
 **Fart** — a no-op regular-tier item (does nothing mechanically) that exists purely for the joke of an unlucky mystery pickup. Its color and payoff (a farting noise) are only revealed on pickup, same as everything else in the mystery pool.
 
@@ -188,8 +190,19 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
 ### Golden Room (settled)
 
 - **One per level**, no fight — the room simply has no enemies, so it reads as instantly "cleared."
-- Guaranteed drop: **2 distinct items**, drawn from strong items *and* boost items combined (or role items too, once those exist, §7) — never `heart`, and never gated by the regular pool's drop-chance roll. Boss rooms drop the same way.
+- Guaranteed drop: **2 distinct items**, drawn from strong items *and* boost items combined (or role items too, once those exist, §7) — never `heart`, and never gated by the regular pool's drop-chance roll. Boss rooms drop the same way, **plus** a random bonus scatter of 1-4 coins, 1-2 life items, and 0-2 keys, unconditional (not gated by anything), spread outward from wherever the boss died rather than stacked on the same spot as the 2 guaranteed items.
 - Doors behave like any other non-boss room (no special hole/portal) — finding it doesn't end the level, it's just a room on the path that happens to be a sure thing instead of a fight.
+- **From level 2 on, its one door is locked** (Isaac-style) — costs 1 key to open. No key means you just can't pass through yet; once paid, that door stays open/unlocked for the rest of the level, no need to pay again on a return visit. Level 1's golden room is always free, no key needed.
+
+### Treasure Chest (settled)
+
+Unlike Golden/Boss/Devil's Room, this isn't a unique per-level room — it's a feature any regular room can have.
+
+- **20% of regular rooms** (never start/boss/golden) have a locked Chest, decided once at floor-generation time — it's a fixture of the room, present and visible from the moment you enter (even mid-fight), not something that spawns in only after a clear.
+- **Costs 1 key to open** (§7) — walking into it with zero keys does nothing; it just stays locked until you have one. Opening consumes exactly 1 key.
+- **Reveals independently, not a single pick**: 50% chance of +1 heart, 50% chance of +1 key, a coin roll (25% chance of 2, 50% chance of 1, 25% chance of 0 — one weighted pick, not three separate rolls), and a 10% chance of a boost item — each rolled on its own, so a single chest can give several rewards at once, or none at all if every roll misses. Rewards scatter out around the chest instead of stacking on one spot.
+- **15% mimic**: instead of the above, the chest springs 2 Swarmers on you and gives nothing. These don't block the room from reading as clear and can't re-close its doors — leaving is always allowed; walking away just leaves them behind (they don't persist to a return visit).
+- Opened chests don't come back on a later visit to the same room.
 
 ### Devil's Room (settled)
 
@@ -197,6 +210,15 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
 - **A real, separate room** (not just a reward screen) — reachable through a distinct door/portal in the boss room, deliberately its own space so it can eventually get its own visual/audio identity (lighting, BGM) instead of reusing a normal room's look.
 - **Choice, not a pickup**: offers **2-3 options**, take exactly one. The others are gone once you choose — no "grab them all."
 - **Devil's Room items are exclusive** — never appear anywhere else (not golden rooms, not boss rooms). Built around real risk, usually a permanent cost (most often a max heart container, §3) for an outsized payoff — meaningfully stronger and/or stranger than anything in the regular strong-item pool, since the cost is what justifies the power. First few concepts (not final): **Blood Pact** (-1 max heart container, +75% damage), **Demon's Eye** (-1 max heart container, gain/stack Homing), **Soul Siphon** (-1 max heart container, kills have a chance to drop a heart), **Reckless Vow** (no upfront cost — your next would-be-fatal hit this level instead triggers a big temporary buff).
+
+**Co-op-specific brainstorm (unsettled — notes dropped ahead of Stage 11 actually starting, not yet designed in detail):**
+- The cost of a Devil's Room item could come out of your **teammate's** max hearts instead of (or as an option alongside) your own — a genuinely co-op-flavored risk/reward twist, since it turns the choice into something the two players have to actually negotiate rather than a solo min-max call. Open question: always partner-cost, always self-cost, or a pick-your-poison per item?
+- **Idea — "shared consumption" item**: each player receives a copy of every strong item their teammate has picked up so far this run (so both end up holding the union of what either of you has found individually). Cost: both players' max heart capacity drops to 1. Extremely high-risk, run-defining swing pick — needs real playtesting to see if it's ever correctly the right choice or just a trap.
+
+### Greed Room (brainstorm, unsettled — not scoped, notes dropped ahead of any stage actually covering this)
+
+- Isaac-style Greed Room idea: a special room appearing in one of the later levels where you can rack up a lot of coins — presumably some kind of wave/gauntlet you fight through (Isaac's version is a wave-based mini-fight with coins dropping throughout, capped off by a small boss), rather than a guaranteed sit-and-grab room like Golden Room.
+- Undecided: which level(s) it can appear on, trigger/access condition (a special door like Devil's Room, or just a room type that can roll into the floor layout), whether it's a fight or a timed grab, and how much currency it should realistically hand out relative to the regular per-room coin drop chance (§7). Depends on coins actually mattering somewhere (the shop, §13) to be worth the design effort — revisit together with that stage.
 
 ---
 
@@ -234,6 +256,8 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
 
 Organized by priority — **Core** is what you need to start implementing gameplay; the rest can follow once the loop is fun. This whole section is explicitly the **last stage** of the roadmap (CLAUDE.md) — everything is deliberately colored rectangles/arcs and either silence or the reused hub track until then, and that's fine; don't let placeholder-art guilt pull this forward early.
 
+**Before sourcing/making any actual files**, the checklist below needs one more planning pass: turn every bullet into an exact filename and target path, following the platformer's existing convention (`public/assets/<game-slug>/`, flat — no subfolders — files named `sfx-*.wav`, `bgm-*.mp3`, and plain descriptive names for images/spritesheets, e.g. `public/assets/thousand-days/sfx-player-hit.wav`, `bgm-boss.mp3`, `enemy-ghost.png`). The point is so the exact filename is known up front — you just drop a matching file into the folder and it's wired in, no back-and-forth over what to call it. That naming pass (and the actual `this.load.image/audio(...)` calls in whatever preload scene this game ends up with) is real engineering work for whenever Stage 14-16 (CLAUDE.md) actually starts — this checklist alone isn't that manifest yet.
+
 ### Sprites — Core (needed early)
 - [ ] **Player 1** — idle/move in 8 directions (or a simpler 4-direction + flip scheme), a "charging" pose (for Bomb), a hit-reaction frame
 - [ ] **Player 2** — same animation set, visually distinct design from Player 1
@@ -243,11 +267,13 @@ Organized by priority — **Core** is what you need to start implementing gamepl
 - [ ] Basic **floor/wall tileset** for rooms (one theme is enough to start)
 - [ ] **Life/heart icon** (UI + pickup)
 - [ ] **Coin icon** (simple, even though the shop is deferred — cheap to make now)
+- [ ] **Key icon** (opens a Treasure Chest, §9)
 
 ### Sprites — Room structures (rocks/water, §8 — built as colored rectangles, this is the real-art follow-up)
 - [ ] **Rock obstacle** — solid, blocks movement and shots
 - [ ] **Water tile** — blocks movement only, needs to visually read as "walkable-looking but isn't" vs. rock's "obviously solid," since the two behave differently
 - [ ] Both need edge/transition tiles against the plain floor, not just a flat color block, or the room reads as broken rather than intentional
+- [ ] **Treasure Chest** (§9) — a locked look is enough; it never switches to an "opened" state since it disappears the instant it's opened
 
 ### Sprites — Role-specific VFX (7 roles — can start as tinted/simple versions, polish later)
 - [ ] Ice — projectile + freeze overlay effect on affected enemies
@@ -297,7 +323,8 @@ Organized by priority — **Core** is what you need to start implementing gamepl
 - [ ] Per-role attack sound (7 — fire and, where relevant, the effect landing: freeze crack, chain-zap, explosion, etc.)
 - [ ] Per-archetype hit/death (Swarmer, Tank, Chaser, Ranged shooter, Splitter incl. its split-apart sound, Boss) — Weak/Strong tiers can likely share a sound with a pitch/volume difference rather than needing fully separate ones
 - [ ] Strong-item pickup stinger (generic "you got something strong" sting, on top of the visual reveal text) — Fart already has its own synthesized sound, matches the tier
-- [ ] Regular pickup sound (boost/heart, generic, quieter than the strong-item stinger so the tiers feel different by ear alone)
+- [ ] Regular pickup sound (boost/heart/coin/key, generic, quieter than the strong-item stinger so the tiers feel different by ear alone)
+- [ ] Treasure Chest open (§9) — ideally distinct from a regular pickup, plus a locked/"need a key" rejection sound and a different sting for the 15% mimic reveal
 - [ ] Room-clear chime, door-open sound
 - [ ] Player hit / player-out sounds
 - [ ] Level-up (boss hole entered) sting

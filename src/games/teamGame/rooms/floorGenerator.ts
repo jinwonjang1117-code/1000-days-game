@@ -139,6 +139,8 @@ function pickRoomEnemies(level: number): RoomEnemyGroup[] {
 const WATER_LAYOUT_CHANCE = 0.5
 /** Chance a room without one gets scattered rock pillars instead of staying open. */
 const PILLAR_LAYOUT_CHANCE = 0.75
+/** Chance a regular room (not start/boss/golden) has a Treasure Chest (DESIGN.md §9) — decided once at floor-generation time, same as everything else about room structure. */
+const CHEST_ROOM_CHANCE = 0.2
 
 /** Room structure (DESIGN.md §9) — a room with a keepDistance/ranged group (only rangedShooter today, checked by movement type rather than a hardcoded archetype id) can get a water split so the ranged group lands genuinely out of melee reach; everything else can get scattered rock pillars instead. */
 function pickRoomObstacles(enemies: RoomEnemyGroup[]): RoomObstacleLayout {
@@ -270,7 +272,7 @@ export function generateFloor(level: number): GeneratedFloor {
       return { coord, enemies: [], isGolden: true, ...EMPTY_LAYOUT }
     }
     const enemies = pickRoomEnemies(level)
-    return { coord, enemies, ...pickRoomObstacles(enemies) }
+    return { coord, enemies, hasChest: Math.random() < CHEST_ROOM_CHANCE, ...pickRoomObstacles(enemies) }
   })
 
   return { level, rooms, startCoord: START_COORD, bossCoord }

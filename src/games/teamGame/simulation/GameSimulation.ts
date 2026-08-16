@@ -7,6 +7,7 @@ import ItemPickup from '../entities/ItemPickup'
 import Buddy from '../entities/Buddy'
 import OrbitingShield from '../entities/OrbitingShield'
 import HazardZone from '../entities/HazardZone'
+import Chest from '../entities/Chest'
 import type { EnemyArchetype } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import type { ItemId } from '../gameplay/items'
@@ -110,6 +111,28 @@ function pushAwayFromEntry(x: number, y: number, enteredFrom: Direction | undefi
   }
 }
 
+/** A random point at [minDistance, maxDistance] from `origin`, in a random direction, clamped to the arena's safe area — used to spread the boss-clear bonus coins/life items, and a Chest's rewards/ambush Swarmers, out instead of stacking them on one spot. */
+function scatterPosition(origin: Vec2, minDistance: number, maxDistance: number): Vec2 {
+  const angle = Math.random() * Math.PI * 2
+  const distance = minDistance + Math.random() * (maxDistance - minDistance)
+  return {
+    x: Phaser.Math.Clamp(origin.x + Math.cos(angle) * distance, ARENA_MIN_X, ARENA_MAX_X),
+    y: Phaser.Math.Clamp(origin.y + Math.sin(angle) * distance, ARENA_MIN_Y, ARENA_MAX_Y),
+  }
+}
+
+/** Chest's coin reward — a single weighted pick among 0/1/2, not three independent rolls (25% 2, 50% 1, 25% 0). */
+function rollChestCoinCount(): number {
+  const r = Math.random()
+  if (r < 0.25) {
+    return 2
+  }
+  if (r < 0.75) {
+    return 1
+  }
+  return 0
+}
+
 /**
  * A projectile-vs-enemy collider registered by spawnEnemy (for an enemy
  * spawned mid-flight, e.g. a Splitter's children) is deliberately stored in
@@ -154,20 +177,56 @@ const SPLIT_SPAWN_OFFSET = 20
 const CHASE_ENEMY_ENTRY_PUSH = 140
 
 /**
- * Room-clear rewards (DESIGN.md §7, boost/life tier now; role items/
- * holdables wait on the role system). Both regular-room chances below only
- * get rolled at all on a no-hit clear (see rollRoomClearReward/
- * tookDamageThisRoom) — golden/boss rooms are unaffected, they're not
- * "fights to play cleanly" in the same sense (golden has no enemies at
- * all; boss's guaranteed drop is a separate, deliberate design choice).
- * Both chances were bumped up from their pre-no-hit-gate values (0.3/0.15)
- * so clearing a room untouched reads as a real, frequent reward instead of
- * still often whiffing on top of already being the harder bar to clear.
+ * Room-clear rewards (DESIGN.md §7, boost/life/coin tier now; role items/
+ * holdables wait on the role system). Only the boost roll (ROOM_DROP_CHANCE)
+ * requires a no-hit clear (see rollRoomClearReward/tookDamageThisRoom) —
+ * LIFE_ITEM_CHANCE and COIN_DROP_CHANCE always get rolled regardless of
+ * whether anyone got hit, so a rough room clear still has a real shot at
+ * healing back up or earning currency, just not the boost. Golden/boss
+ * rooms are unaffected by any of this either way — they're not "fights to
+ * play cleanly" in the same sense (golden has no enemies at all; boss's
+ * guaranteed drop is a separate, deliberate design choice).
  */
 const REGULAR_REWARD_SPACING = 50
-const LIFE_ITEM_CHANCE = 0.3
+const LIFE_ITEM_CHANCE = 0.25
+/** Coins are groundwork for the future shop (roadmap stage 13, CLAUDE.md) — nothing spends them yet. */
+const COIN_DROP_CHANCE = 0.5
+/** Opens a Chest — see the Chest section below. Unconditional, same class as coin/life. */
+const KEY_DROP_CHANCE = 0.2
 /** Chance that a no-hit non-boss room drops a boost on clear. Tweakable. */
 const ROOM_DROP_CHANCE = 0.6
+/**
+ * Boss-clear bonus, on top of the guaranteed 2-item drop above — a random
+ * count of coins/life items/keys scattered outward from wherever the boss
+ * died (see resolveEnemyDeath's lastEnemyDeathPos / scatterPosition), not
+ * gated by anything since a boss fight itself is already the harder bar to
+ * clear.
+ */
+const BOSS_BONUS_COIN_MIN = 1
+const BOSS_BONUS_COIN_MAX = 4
+const BOSS_BONUS_LIFE_MIN = 1
+const BOSS_BONUS_LIFE_MAX = 2
+const BOSS_BONUS_KEY_MIN = 0
+const BOSS_BONUS_KEY_MAX = 2
+const BOSS_BONUS_SCATTER_MIN_DISTANCE = 60
+const BOSS_BONUS_SCATTER_MAX_DISTANCE = 250
+/**
+ * Chest open outcome (DESIGN.md §9) — 15% of opens are a mimic: 2 ambush
+ * Swarmers (countsForClear: false, so they can't re-close already-open
+ * doors) and nothing else. Every other open independently rolls each of
+ * heart/key/coin/boost — a chest can give several rewards at once, or none
+ * at all if every roll misses; see rollChestCoinCount for the coin roll's
+ * own 0/1/2 weighting (not independent — the three outcomes are one pick).
+ */
+const CHEST_AMBUSH_CHANCE = 0.15
+const CHEST_AMBUSH_SWARMER_COUNT = 2
+const CHEST_AMBUSH_SCATTER_MIN_DISTANCE = 20
+const CHEST_AMBUSH_SCATTER_MAX_DISTANCE = 60
+const CHEST_HEART_CHANCE = 0.5
+const CHEST_KEY_CHANCE = 0.5
+const CHEST_BOOST_CHANCE = 0.1
+const CHEST_REWARD_SCATTER_MIN_DISTANCE = 30
+const CHEST_REWARD_SCATTER_MAX_DISTANCE = 90
 /** Extra shots fired in a spread when a player has picked up Multi Shot, in addition to the center shot. */
 const MULTI_SHOT_SPREAD_RADIANS = Phaser.Math.DegToRad(15)
 
@@ -209,6 +268,10 @@ export interface RoomUiState {
   readonly ownMaxLives: number
   readonly partnerLives: number | null
   readonly partnerMaxLives: number | null
+  /** Team-shared, not per-player — see GameSimulation's coinCount field. Nothing spends this yet (roadmap stage 13, the future shop). */
+  readonly coins: number
+  /** Team-shared, not per-player — opens Chests. See GameSimulation's keyCount field. */
+  readonly keys: number
   isCurrentRoomBoss(): boolean
   isRoomClear(): boolean
   isDirectionOpen(direction: Direction): boolean
@@ -281,6 +344,8 @@ export default class GameSimulation implements RoomUiState {
   private roomJustCleared = false
   /** Reset on every loadRoom(), set by handleHit — gates the regular-room reward roll in rollRoomClearReward (no-hit clears only). */
   private tookDamageThisRoom = false
+  /** Reset on every loadRoom(), set by resolveEnemyDeath — a boss room only ever holds one enemy, so this is the boss's death position by the time rollRoomClearReward runs (see scatterBossBonusRewards). */
+  private lastEnemyDeathPos: Vec2 | null = null
 
   private level = 1
   /** Drives hasNeighbor/door logic, boss-room lookup, and the minimap. */
@@ -302,6 +367,18 @@ export default class GameSimulation implements RoomUiState {
   private nextItemPickupId = 0
   /** Run-wide, not per-player — a `unique` item (see items.ts) is excluded from future strong-item rolls once anyone has gotten it. No item sets `unique` yet, so this has no visible effect today. */
   private grantedUniqueItems: Set<ItemId> = new Set()
+  /** Team-shared currency, not per-player — matches how this is a shared-room co-op (both players are always together), and the eventual shop room will be too. Nothing spends this yet (roadmap stage 13) — groundwork only. */
+  private coinCount = 0
+  /** Team-shared, not per-player — opens Chests (see spawnChest/handleChestTouch). */
+  private keyCount = 0
+  /** coordKey(coord) of every room whose Chest has already been opened this level — reset in startLevel(), checked in loadRoom() so a re-opened chest doesn't respawn on a return visit. */
+  private openedChests: Set<string> = new Set()
+  /** True once the golden room's locked door (level 2+, see isGoldenDoorLocked) has been paid for this level — reset in startLevel(). Only one golden room per level, so a single flag is enough. */
+  private goldenDoorUnlocked = false
+  /** At most one per room — room-scoped like hazard zones, torn down every loadRoom(). */
+  private chest: Chest | null = null
+  private chestColliders: Phaser.Physics.Arcade.Collider[] = []
+  private nextChestId = 0
 
   // Slime's periodic drop (DESIGN.md's enemy-variety pass) — room-scoped
   // like enemies/projectiles/pickups, not persistent like Buddy/Shield, so
@@ -395,6 +472,14 @@ export default class GameSimulation implements RoomUiState {
     return this.joinerPlayer ? this.joinerPlayer.getMaxLives() : null
   }
 
+  get coins(): number {
+    return this.coinCount
+  }
+
+  get keys(): number {
+    return this.keyCount
+  }
+
   isCurrentRoomBoss(): boolean {
     return getRoomDefinition(this.floorRooms, this.roomCoord)?.isBoss ?? false
   }
@@ -404,8 +489,18 @@ export default class GameSimulation implements RoomUiState {
     return getRoomDefinition(this.floorRooms, this.roomCoord)?.isGolden ?? false
   }
 
+  /** True if any live enemy actually counts toward "room clear" — a Chest mimic's ambush Swarmers (countsForClear: false) don't, so they can't re-close already-open doors. */
+  private hasClearBlockingEnemies(): boolean {
+    for (const enemy of this.roomEnemies.values()) {
+      if (enemy.countsForClear) {
+        return true
+      }
+    }
+    return false
+  }
+
   isRoomClear(): boolean {
-    return this.roomEnemies.size === 0
+    return !this.hasClearBlockingEnemies()
   }
 
   isDirectionOpen(direction: Direction): boolean {
@@ -596,12 +691,18 @@ export default class GameSimulation implements RoomUiState {
     }
   }
 
-  /** Effect-application, shared by real pickups and the dev give-item menu. 'heart' and 'heartContainer' aren't PlayerStats mutators, so they're special-cased here rather than going through Player.applyItem. */
+  /** Effect-application, shared by real pickups and the dev give-item menu. 'heart', 'heartContainer', 'coin', and 'key' aren't PlayerStats mutators, so they're special-cased here rather than going through Player.applyItem. */
   private applyGrantedItem(itemId: ItemId, player: Player) {
     if (itemId === 'heart') {
       player.grantLife()
     } else if (itemId === 'heartContainer') {
       player.increaseMaxLives(1)
+    } else if (itemId === 'coin') {
+      // Team-shared, not per-player — see the `coins` field/getter.
+      this.coinCount++
+    } else if (itemId === 'key') {
+      // Team-shared, not per-player — see the `keys` field/getter.
+      this.keyCount++
     } else {
       player.applyItem(itemId)
     }
@@ -612,7 +713,7 @@ export default class GameSimulation implements RoomUiState {
       this.spawnShield(player)
     }
 
-    if (itemId !== 'heart' && STAT_ITEMS[itemId].unique) {
+    if (itemId !== 'heart' && itemId !== 'coin' && itemId !== 'key' && STAT_ITEMS[itemId].unique) {
       this.grantedUniqueItems.add(itemId)
     }
   }
@@ -659,6 +760,9 @@ export default class GameSimulation implements RoomUiState {
       })),
       isGameOver: this.gameOver,
       isPaused: this.paused,
+      coins: this.coinCount,
+      keys: this.keyCount,
+      chests: this.chest ? [{ id: this.chest.id, pos: { x: this.chest.x, y: this.chest.y } }] : [],
     }
   }
 
@@ -682,6 +786,10 @@ export default class GameSimulation implements RoomUiState {
     this.hazardZones.clear()
     this.hazardZoneColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.hazardZoneColliders.clear()
+    this.chest?.destroy()
+    this.chest = null
+    this.chestColliders.forEach(destroyCollider)
+    this.chestColliders = []
     this.roomEnemyColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.roomEnemyColliders.clear()
     this.roomEnemies.forEach((enemy) => enemy.destroy())
@@ -789,7 +897,7 @@ export default class GameSimulation implements RoomUiState {
     // the exact frame a fresh clear happened, not stale from an earlier one.
     this.roomJustCleared = false
 
-    const clear = this.roomEnemies.size === 0
+    const clear = !this.hasClearBlockingEnemies()
     const wasAlreadyCleared = this.clearedRooms.some((cleared) => coordsEqual(cleared, this.roomCoord))
     if (!clear || wasAlreadyCleared) {
       return
@@ -820,7 +928,7 @@ export default class GameSimulation implements RoomUiState {
     // (very plausible for the boss hole, dead center of the room) would
     // tear down the reward that was just spawned this same frame before
     // ever seeing it.
-    if (this.roomEnemies.size > 0 || this.roomJustCleared) {
+    if (this.hasClearBlockingEnemies() || this.roomJustCleared) {
       return
     }
 
@@ -842,11 +950,29 @@ export default class GameSimulation implements RoomUiState {
         continue
       }
       const direction = this.getTouchedDoorDirection(player.x, player.y)
-      if (direction) {
-        this.loadRoom(getNeighborCoord(this.roomCoord, direction), oppositeDirection(direction))
-        return
+      if (!direction) {
+        continue
       }
+      const neighborCoord = getNeighborCoord(this.roomCoord, direction)
+      if (this.isGoldenDoorLocked(neighborCoord)) {
+        if (this.keyCount < 1) {
+          // Locked, no key — silently blocked, same as an unopened Chest.
+          return
+        }
+        this.keyCount--
+        this.goldenDoorUnlocked = true
+      }
+      this.loadRoom(neighborCoord, oppositeDirection(direction))
+      return
     }
+  }
+
+  /** DESIGN.md §9: from level 2 on, the golden room's one door (it's always a dead-end spur, per floorGenerator.ts) costs 1 key to open — stays unlocked for the rest of the level once paid, same as an Isaac locked door. */
+  private isGoldenDoorLocked(neighborCoord: RoomCoord): boolean {
+    if (this.level < 2 || this.goldenDoorUnlocked) {
+      return false
+    }
+    return getRoomDefinition(this.currentFloor.rooms, neighborCoord)?.isGolden ?? false
   }
 
   /**
@@ -877,6 +1003,8 @@ export default class GameSimulation implements RoomUiState {
     this.explored = [this.currentFloor.startCoord]
     this.clearedRooms = []
     this.persistedItemPickups.clear()
+    this.openedChests.clear()
+    this.goldenDoorUnlocked = false
 
     // No-ops for a player who wasn't out — safe to call every level start,
     // including the very first one.
@@ -906,6 +1034,7 @@ export default class GameSimulation implements RoomUiState {
    */
   private loadRoom(coord: RoomCoord, enteredFrom?: Direction) {
     this.tookDamageThisRoom = false
+    this.lastEnemyDeathPos = null
 
     this.roomEnemyColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.roomEnemyColliders.clear()
@@ -952,6 +1081,16 @@ export default class GameSimulation implements RoomUiState {
     this.hazardZoneColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.hazardZoneColliders.clear()
 
+    // A Chest doesn't need a persisted-pickups-style snapshot like item
+    // pickups do — whether this room *has* one at all is stable, stored on
+    // the room definition itself (room.hasChest), and openedChests is the
+    // only "has it already been consumed" state that needs to survive
+    // between visits.
+    this.chest?.destroy()
+    this.chest = null
+    this.chestColliders.forEach(destroyCollider)
+    this.chestColliders = []
+
     if (enteredFrom) {
       const [posA, posB] = getEntryPositions(enteredFrom)
       this.hostPlayer.teleport(posA.x, posA.y)
@@ -967,6 +1106,10 @@ export default class GameSimulation implements RoomUiState {
 
     const room = getRoomDefinition(this.currentFloor?.rooms ?? [], coord)
     room?.obstacles.forEach((rect) => this.spawnObstacle(rect))
+
+    if (room?.hasChest && !this.openedChests.has(this.coordKey(coord))) {
+      this.spawnChest(room.chestAnchor.x, room.chestAnchor.y)
+    }
 
     const alreadyCleared = this.clearedRooms.some((cleared) => coordsEqual(cleared, coord))
     if (room && !alreadyCleared) {
@@ -1045,10 +1188,10 @@ export default class GameSimulation implements RoomUiState {
     }
   }
 
-  /** Registers overlap against whichever of hostPlayer/joinerPlayer exist (solo has only one). Also used by the split-on-death path. */
-  private spawnEnemy(archetype: EnemyArchetype, x: number, y: number) {
+  /** Registers overlap against whichever of hostPlayer/joinerPlayer exist (solo has only one). Also used by the split-on-death path and a Chest mimic's ambush Swarmers (countsForClear: false). */
+  private spawnEnemy(archetype: EnemyArchetype, x: number, y: number, countsForClear = true) {
     const id = this.nextEnemyId++
-    const enemy = new Enemy(this.scene, id, archetype, x, y, { simulated: true })
+    const enemy = new Enemy(this.scene, id, archetype, x, y, { simulated: true, countsForClear })
     this.roomEnemies.set(id, enemy)
 
     const colliders: Phaser.Physics.Arcade.Collider[] = []
@@ -1109,6 +1252,7 @@ export default class GameSimulation implements RoomUiState {
     const { splitsOnDeath, splitCount, explodesOnDeath, explosionRadius } = enemy.archetype
     const deathX = enemy.x
     const deathY = enemy.y
+    this.lastEnemyDeathPos = { x: deathX, y: deathY }
 
     this.roomEnemyColliders.get(enemyId)?.forEach(destroyCollider)
     this.roomEnemyColliders.delete(enemyId)
@@ -1162,6 +1306,7 @@ export default class GameSimulation implements RoomUiState {
       if (secondId) {
         this.spawnItemPickup(secondId, BOSS_HOLE_CENTER.x + REGULAR_REWARD_SPACING / 2, BOSS_HOLE_CENTER.y - REGULAR_REWARD_SPACING)
       }
+      this.scatterBossBonusRewards()
       return
     }
 
@@ -1180,24 +1325,53 @@ export default class GameSimulation implements RoomUiState {
     // ENEMY_SPAWN_CENTER constant, so a reward can never land inside a
     // pillar room's rocks (golden/boss above stay on the fixed constants
     // since those room types are always the obstacle-free empty layout).
-    // No-hit gate: a regular room only has a chance to drop anything at all
-    // if nobody took a hit while it was being cleared — rewards a clean
-    // clear instead of dropping regardless of how the fight went.
-    if (this.tookDamageThisRoom) {
-      return
-    }
-
     const anchor = getRoomDefinition(this.currentFloor.rooms, coord)?.enemyAnchor ?? ENEMY_SPAWN_CENTER
 
-    // Global gate: boost drops only happen with ROOM_DROP_CHANCE probability.
-    if (Math.random() < ROOM_DROP_CHANCE) {
+    // Coin, life item, and key all roll unconditionally, regardless of
+    // whether anyone got hit clearing this room.
+    if (Math.random() < COIN_DROP_CHANCE) {
+      this.spawnItemPickup('coin', anchor.x, anchor.y - REGULAR_REWARD_SPACING)
+    }
+    if (Math.random() < LIFE_ITEM_CHANCE) {
+      this.spawnItemPickup('heart', anchor.x + REGULAR_REWARD_SPACING / 2, anchor.y)
+    }
+    if (Math.random() < KEY_DROP_CHANCE) {
+      this.spawnItemPickup('key', anchor.x, anchor.y + REGULAR_REWARD_SPACING)
+    }
+
+    // No-hit gate: the boost roll only happens at all if nobody took a hit
+    // while this room was being cleared — rewards a clean clear instead of
+    // dropping regardless of how the fight went.
+    if (!this.tookDamageThisRoom && Math.random() < ROOM_DROP_CHANCE) {
       const boostId = randomBoostItemId()
       this.spawnItemPickup(boostId, anchor.x - REGULAR_REWARD_SPACING / 2, anchor.y)
     }
+  }
 
-    // Life item still spawns independently at LIFE_ITEM_CHANCE.
-    if (Math.random() < LIFE_ITEM_CHANCE) {
-      this.spawnItemPickup('heart', anchor.x + REGULAR_REWARD_SPACING / 2, anchor.y)
+  /**
+   * Boss-clear bonus (DESIGN.md §7/§9): a random count of coins/life
+   * items/keys scattered outward from wherever the boss died, on top of the
+   * guaranteed 2-item drop rollRoomClearReward already spawned. Falls back
+   * to BOSS_HOLE_CENTER if lastEnemyDeathPos is somehow unset (defensive
+   * only — a boss room always holds exactly one enemy, so it's always set
+   * by the time this runs).
+   */
+  private scatterBossBonusRewards() {
+    const origin = this.lastEnemyDeathPos ?? BOSS_HOLE_CENTER
+    const coinCount = Phaser.Math.Between(BOSS_BONUS_COIN_MIN, BOSS_BONUS_COIN_MAX)
+    for (let i = 0; i < coinCount; i++) {
+      const pos = scatterPosition(origin, BOSS_BONUS_SCATTER_MIN_DISTANCE, BOSS_BONUS_SCATTER_MAX_DISTANCE)
+      this.spawnItemPickup('coin', pos.x, pos.y)
+    }
+    const lifeCount = Phaser.Math.Between(BOSS_BONUS_LIFE_MIN, BOSS_BONUS_LIFE_MAX)
+    for (let i = 0; i < lifeCount; i++) {
+      const pos = scatterPosition(origin, BOSS_BONUS_SCATTER_MIN_DISTANCE, BOSS_BONUS_SCATTER_MAX_DISTANCE)
+      this.spawnItemPickup('heart', pos.x, pos.y)
+    }
+    const keyCount = Phaser.Math.Between(BOSS_BONUS_KEY_MIN, BOSS_BONUS_KEY_MAX)
+    for (let i = 0; i < keyCount; i++) {
+      const pos = scatterPosition(origin, BOSS_BONUS_SCATTER_MIN_DISTANCE, BOSS_BONUS_SCATTER_MAX_DISTANCE)
+      this.spawnItemPickup('key', pos.x, pos.y)
     }
   }
 
@@ -1266,6 +1440,73 @@ export default class GameSimulation implements RoomUiState {
     this.hazardZones.delete(id)
     this.hazardZoneColliders.get(id)?.forEach(destroyCollider)
     this.hazardZoneColliders.delete(id)
+  }
+
+  // ---- Chest ----
+
+  /** A locked Treasure Chest (DESIGN.md §9) — decided once at floor-generation time (room.hasChest/chestAnchor), spawned here from loadRoom. At most one per room. */
+  private spawnChest(x: number, y: number) {
+    const id = this.nextChestId++
+    const chest = new Chest(this.scene, id, x, y, { simulated: true })
+    this.chest = chest
+
+    const colliders: Phaser.Physics.Arcade.Collider[] = []
+    const hostPlayer = this.hostPlayer
+    colliders.push(this.scene.physics.add.overlap(hostPlayer.square, chest.shape, () => this.handleChestTouch(chest)))
+    const joinerPlayer = this.joinerPlayer
+    if (joinerPlayer) {
+      colliders.push(this.scene.physics.add.overlap(joinerPlayer.square, chest.shape, () => this.handleChestTouch(chest)))
+    }
+    this.chestColliders = colliders
+  }
+
+  /**
+   * Costs 1 key — no-ops (stays locked) if the team has none. `this.chest
+   * !== chest` guards against both players overlapping the same Chest in
+   * the same physics step (Arcade fires each registered overlap
+   * independently) — whichever callback runs first nulls `this.chest`
+   * immediately, so a same-frame second callback sees it's already gone
+   * instead of double-opening it.
+   */
+  private handleChestTouch(chest: Chest) {
+    if (this.chest !== chest || this.keyCount < 1) {
+      return
+    }
+    this.keyCount--
+    this.chest = null
+    this.openedChests.add(this.coordKey(this.roomCoord))
+    const origin = { x: chest.x, y: chest.y }
+    chest.destroy()
+    this.chestColliders.forEach(destroyCollider)
+    this.chestColliders = []
+
+    // 15% mimic: an ambush, nothing else. Otherwise, independently roll
+    // each reward — a chest can give several things at once, or nothing.
+    if (Math.random() < CHEST_AMBUSH_CHANCE) {
+      for (let i = 0; i < CHEST_AMBUSH_SWARMER_COUNT; i++) {
+        const pos = scatterPosition(origin, CHEST_AMBUSH_SCATTER_MIN_DISTANCE, CHEST_AMBUSH_SCATTER_MAX_DISTANCE)
+        this.spawnEnemy(ARCHETYPES.swarmerWeak, pos.x, pos.y, false)
+      }
+      return
+    }
+
+    if (Math.random() < CHEST_HEART_CHANCE) {
+      const pos = scatterPosition(origin, CHEST_REWARD_SCATTER_MIN_DISTANCE, CHEST_REWARD_SCATTER_MAX_DISTANCE)
+      this.spawnItemPickup('heart', pos.x, pos.y)
+    }
+    if (Math.random() < CHEST_KEY_CHANCE) {
+      const pos = scatterPosition(origin, CHEST_REWARD_SCATTER_MIN_DISTANCE, CHEST_REWARD_SCATTER_MAX_DISTANCE)
+      this.spawnItemPickup('key', pos.x, pos.y)
+    }
+    const coinCount = rollChestCoinCount()
+    for (let i = 0; i < coinCount; i++) {
+      const pos = scatterPosition(origin, CHEST_REWARD_SCATTER_MIN_DISTANCE, CHEST_REWARD_SCATTER_MAX_DISTANCE)
+      this.spawnItemPickup('coin', pos.x, pos.y)
+    }
+    if (Math.random() < CHEST_BOOST_CHANCE) {
+      const pos = scatterPosition(origin, CHEST_REWARD_SCATTER_MIN_DISTANCE, CHEST_REWARD_SCATTER_MAX_DISTANCE)
+      this.spawnItemPickup(randomBoostItemId(), pos.x, pos.y)
+    }
   }
 
   // ---- Projectiles ----

@@ -29,6 +29,14 @@ export interface RoomObstacleLayout {
   enemyAnchor: Vec2
   /** Where keepDistance/ranged groups spawn instead — only set when this layout splits the room. */
   rangedEnemyAnchor?: Vec2
+  /**
+   * Where this layout's Treasure Chest (DESIGN.md §9) sits, clear of both
+   * this layout's fixed obstacles and its enemy anchor(s) — always
+   * computed, even for a room that doesn't end up rolling a chest
+   * (floorGenerator.ts decides that per room instance), so pillar
+   * placement always reserves clearance here too.
+   */
+  chestAnchor: Vec2
 }
 
 // World is 800x600 (GameSimulation.ts's WORLD_WIDTH/WORLD_HEIGHT). Every
@@ -42,22 +50,31 @@ export const ARENA_MIN_Y = 140
 export const ARENA_MAX_Y = 460
 
 const DEFAULT_ANCHOR: Vec2 = { x: 400, y: 200 }
+/** Shared by EMPTY_LAYOUT and generatePillarLayout — south of DEFAULT_ANCHOR, clear of both it and the arena edges. */
+const DEFAULT_CHEST_ANCHOR: Vec2 = { x: 400, y: 350 }
 
 export const EMPTY_LAYOUT: RoomObstacleLayout = {
   obstacles: [],
   enemyAnchor: DEFAULT_ANCHOR,
+  chestAnchor: DEFAULT_CHEST_ANCHOR,
 }
 
 export const WATER_SPLIT_HORIZONTAL: RoomObstacleLayout = {
   obstacles: [{ type: 'water', x: ARENA_MIN_X, y: 270, width: ARENA_MAX_X - ARENA_MIN_X, height: 60 }],
   enemyAnchor: DEFAULT_ANCHOR,
   rangedEnemyAnchor: { x: 400, y: 400 },
+  // Off to the side, same row as the melee anchor — the water strip (y
+  // 270-330) already separates melee (y 200) from ranged (y 400) along the
+  // center column, so there's no clear spot left at x=400.
+  chestAnchor: { x: 580, y: 200 },
 }
 
 export const WATER_SPLIT_VERTICAL: RoomObstacleLayout = {
   obstacles: [{ type: 'water', x: 370, y: ARENA_MIN_Y, width: 60, height: ARENA_MAX_Y - ARENA_MIN_Y }],
   enemyAnchor: { x: 200, y: 300 },
   rangedEnemyAnchor: { x: 600, y: 300 },
+  // Melee side, offset in y from the enemy anchor's own row.
+  chestAnchor: { x: 200, y: 160 },
 }
 
 const PILLAR_SIZE = 40
@@ -96,6 +113,12 @@ export function generatePillarLayout(): RoomObstacleLayout {
     if (distance(center, DEFAULT_ANCHOR) < PILLAR_ANCHOR_CLEARANCE) {
       continue
     }
+    // Also keep clear of where a Chest would sit if this room instance
+    // rolls one — that's decided later, per room, by floorGenerator.ts, so
+    // every pillar room reserves the spot regardless of whether it's used.
+    if (distance(center, DEFAULT_CHEST_ANCHOR) < PILLAR_ANCHOR_CLEARANCE) {
+      continue
+    }
     if (centers.some((other) => distance(center, other) < PILLAR_MIN_SPACING)) {
       continue
     }
@@ -111,5 +134,6 @@ export function generatePillarLayout(): RoomObstacleLayout {
       height: PILLAR_SIZE,
     })),
     enemyAnchor: DEFAULT_ANCHOR,
+    chestAnchor: DEFAULT_CHEST_ANCHOR,
   }
 }
