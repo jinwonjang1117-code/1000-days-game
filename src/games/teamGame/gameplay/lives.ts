@@ -2,9 +2,9 @@
 // runs any of this — it only ever renders the PlayerState the host derives
 // from a LifeState and broadcasts (see net/syncProtocol.ts).
 
-export const STARTING_LIVES = 5
-export const RESPAWN_LIVES = 3
-export const INVINCIBILITY_DURATION_MS = 1200
+export const STARTING_LIVES = 3
+export const RESPAWN_LIVES = 1
+export const INVINCIBILITY_DURATION_MS = 1000
 
 export interface LifeState {
   lives: number

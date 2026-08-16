@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import type { Vec2 } from '../net/syncProtocol'
 
-// Exported so DevTestScene can compute a boosted player's actual shot
+// Exported so CoopPlayScene can compute a boosted player's actual shot
 // stats as base * multiplier without duplicating these base numbers.
 export const PROJECTILE_RADIUS = 6
 export const PROJECTILE_SPEED = 200
@@ -82,7 +82,7 @@ export default class Projectile {
   private readonly attachedTickMs = 400
 
   // Piercing bookkeeping — see the note on handleProjectileHitEnemy in
-  // DevTestScene.ts: Arcade overlap fires every frame two bodies are
+  // CoopPlayScene.ts: Arcade overlap fires every frame two bodies are
   // touching, not once, so a projectile that survives a hit must not be
   // allowed to re-hit the same enemy again while still overlapping it.
   private pierceRemaining: number

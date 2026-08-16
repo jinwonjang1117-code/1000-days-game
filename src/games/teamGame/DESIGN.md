@@ -45,7 +45,7 @@ A 2-player online co-op roguelike inspired by The Binding of Isaac. One player h
 - Each player has a **max lives** cap in addition to their current count — starts equal to the starting 5. Life items top up toward the cap, they don't exceed it.
 - The cap itself grows two ways:
   1. **Passively, +1 every 2 levels** — a guaranteed trickle of extra survivability over a run regardless of item luck. (Not how Isaac does it — Isaac's health growth is 100% item-driven, no depth-based scaling — this is a deliberate departure, not an attempt to match it.)
-  2. **Heart Container item** (a strong item, see §7) — +2 max lives, and fills the new capacity immediately (you gain the 2 lives too, not just headroom).
+  2. **Heart Container item** (a strong item, see §7) — +1 max lives, and fills the new capacity immediately (you gain the 2 lives too, not just headroom).
 
 ---
 
@@ -122,7 +122,7 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
    - **Heavy Shot** — big damage up, projectile size up, projectile speed down a lot (stacks) — strong vs. slow/tanky archetypes, weak vs. anything that just walks around a slow shot
    - **Buddy** (stacks) — a familiar that trails/follows the player Isaac-style and fires whenever you do, mirroring your aim direction. Small fixed projectile size, and its damage does **not** scale with the owning player's stats (flat, so it doesn't just become a second copy of whatever you've built) — collecting several stacks up to multiple buddies
    - **Orbiting Shield** (stacks) — a shield that circles the player and **damages enemies on contact**; multiple stacks add more shields circling at once, Isaac-orbital-style
-   - **Heart Container** (stacks) — +2 max lives, fills the new capacity immediately (§3)
+   - **Heart Container** (stacks) — +1 max lives, fills the new capacity immediately (§3)
 6. **Role items** — define/change which of the 7 roles a player has (§5). Sourced the same way as strong items (golden/boss rooms), but a **separate, single-equip category**: picking one up replaces whatever role you currently had, it doesn't stack. No scheduled drops anymore — purely find-based, including no role at all being a normal early-run state.
 7. **Devil's Room items** — exclusive to the Devil's Room (§9), never found anywhere else. Deliberately risk/reward: most cost something real (usually a max heart container) for an outsized payoff.
 
@@ -157,7 +157,7 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
 
 ## 8. Run Structure
 
-- **10 levels total**, each a mini-floor of **6-10 rooms**.
+- **10 levels total**, each a mini-floor of **6-12 rooms**.
 - **Mini-boss at the end of every level** (1-9); **final boss on level 10** (no regular rooms that level).
 - **One Golden Room per level** (no fight, guaranteed strong/role item) — see §9.
 - Role items no longer have scheduled drops (retired along with the old role-acquisition rules, §5) — purely sourced from golden/boss rooms now, same as strong items.

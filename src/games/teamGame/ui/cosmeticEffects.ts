@@ -3,7 +3,7 @@ import Phaser from 'phaser'
 // Purely cosmetic, no gameplay state involved — plain functions rather
 // than a class, since there's nothing to construct. Shared between
 // simulation/GameSimulation.ts (host/solo, triggered directly from
-// hit-resolution) and scenes/DevTestScene.ts (joiner, triggered from
+// hit-resolution) and scenes/CoopPlayScene.ts (joiner, triggered from
 // noticing something vanish in a reconciled broadcast) with no coupling
 // between those two call sites.
 

@@ -36,10 +36,10 @@ export interface RoomObstacleLayout {
 // zone or its ENTRY_MARGIN, regardless of which of a room's 4 sides
 // actually has a door — templates don't need to know a room's specific
 // door configuration.
-const ARENA_MIN_X = 140
-const ARENA_MAX_X = 660
-const ARENA_MIN_Y = 140
-const ARENA_MAX_Y = 460
+export const ARENA_MIN_X = 140
+export const ARENA_MAX_X = 660
+export const ARENA_MIN_Y = 140
+export const ARENA_MAX_Y = 460
 
 const DEFAULT_ANCHOR: Vec2 = { x: 400, y: 200 }
 

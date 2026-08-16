@@ -54,7 +54,7 @@ export interface EnemyArchetype {
   splitCount?: number
   /** If set, periodically fires a projectile at the nearest in-range player (see Enemy.tryFireAt). shotCount/spreadRadians (Spread Shooter) fan multiple shots across an arc instead of firing one straight at the target. */
   ranged?: { fireRateMs: number; range: number; shotCount?: number; spreadRadians?: number }
-  /** If set, death also hits any player within explosionRadius (see DevTestScene's handleProjectileHitEnemy) — a normal hit, no separate damage machinery. */
+  /** If set, death also hits any player within explosionRadius (see CoopPlayScene's handleProjectileHitEnemy) — a normal hit, no separate damage machinery. */
   explodesOnDeath?: boolean
   explosionRadius?: number
   /** 'charge' movement only — see Enemy's idle/telegraphing/dashing/cooldown state machine. */
@@ -117,7 +117,7 @@ const BASE_STATS: Record<ArchetypeCategory, BaseStats> = {
     size: 24,
     color: 0x44ccff,
     movement: 'keepDistance',
-    ranged: { fireRateMs: 1400, range: 260 },
+    ranged: { fireRateMs: 1400, range: 300 },
   },
   // "Moves while shooting" — actively pursues but also fires on a
   // cooldown, creating a mobile ranged threat that pressures players.
@@ -145,7 +145,7 @@ const BASE_STATS: Record<ArchetypeCategory, BaseStats> = {
   // direction and speed instead of beelining or holding position.
   erratic: {
     maxHealth: 2,
-    speed: 160,
+    speed: 200,
     size: 22,
     color: 0xddff44,
     movement: 'erratic',
@@ -159,7 +159,7 @@ const BASE_STATS: Record<ArchetypeCategory, BaseStats> = {
     size: 28,
     color: 0xff8800,
     movement: 'charge',
-    charge: { triggerRange: 260, telegraphMs: 500, dashSpeed: 420, dashDurationMs: 500, cooldownMs: 900 },
+    charge: { triggerRange: 300, telegraphMs: 500, dashSpeed: 450, dashDurationMs: 600, cooldownMs: 600 },
   },
   // "Pressure via numbers" — keeps its distance like a Ranged shooter but
   // never attacks directly; instead it periodically spawns a Weak Swarmer
@@ -182,7 +182,7 @@ const BASE_STATS: Record<ArchetypeCategory, BaseStats> = {
     size: 24,
     color: 0x44ffaa,
     movement: 'keepDistance',
-    ranged: { fireRateMs: 1800, range: 240, shotCount: 3, spreadRadians: degToRad(40) },
+    ranged: { fireRateMs: 1800, range: 360, shotCount: 3, spreadRadians: degToRad(40) },
   },
   // "Punishes slow chip damage" — a plain melee chaser until its health
   // drops to/below half, at which point its speed jumps and it stays

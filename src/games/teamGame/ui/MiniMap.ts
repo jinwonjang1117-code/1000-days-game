@@ -20,7 +20,7 @@ export interface MiniMapRoomInfo {
   coord: RoomCoord
   isBoss: boolean
   isGolden: boolean
-  /** Not used by the minimap itself — carried here purely so this already-shared per-room shape gets it to the joiner too, same as isBoss/isGolden (see DevTestScene's obstacle rendering). */
+  /** Not used by the minimap itself — carried here purely so this already-shared per-room shape gets it to the joiner too, same as isBoss/isGolden (see CoopPlayScene's obstacle rendering). */
   obstacles: RoomObstacle[]
 }
 

@@ -28,8 +28,13 @@ function clampLevel(level: number): number {
   return Math.min(level, MAX_RAMP_LEVEL)
 }
 
+const MIN_ROOMS_PER_LEVEL = 6
+const MAX_ROOMS_PER_LEVEL = 12
+
+/** Ramps linearly from MIN_ROOMS_PER_LEVEL at level 1 to MAX_ROOMS_PER_LEVEL at MAX_RAMP_LEVEL. */
 function roomCountForLevel(level: number): number {
-  return Math.min(6 + Math.floor((clampLevel(level) - 1) / 2), 10)
+  const progress = (clampLevel(level) - 1) / (MAX_RAMP_LEVEL - 1)
+  return MIN_ROOMS_PER_LEVEL + Math.round(progress * (MAX_ROOMS_PER_LEVEL - MIN_ROOMS_PER_LEVEL))
 }
 
 /** Cumulative per DESIGN.md §8's enemy archetype introduction schedule. */

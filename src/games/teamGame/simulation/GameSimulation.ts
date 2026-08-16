@@ -17,10 +17,11 @@ import { ALL_DIRECTIONS, getRoomDefinition, getNeighborCoord, hasNeighbor, oppos
 import type { GeneratedFloor } from '../rooms/floorGenerator'
 import { generateFloor } from '../rooms/floorGenerator'
 import type { ObstacleType, RoomObstacle } from '../rooms/roomLayouts'
+import { ARENA_MIN_X, ARENA_MAX_X, ARENA_MIN_Y, ARENA_MAX_Y } from '../rooms/roomLayouts'
 import type { MiniMapRoomInfo } from '../ui/MiniMap'
 import { showPickupText, spawnExplosionEffect, playFartSound } from '../ui/cosmeticEffects'
 
-// Shared world/door geometry, exported so both PlayScene and DevTestScene
+// Shared world/door geometry, exported so both PlayScene and CoopPlayScene
 // can draw the same door rectangles / boss-hole circle this class's
 // touch-detection math is based on, without duplicating the numbers.
 export const WORLD_WIDTH = 800
@@ -88,6 +89,28 @@ function normalizeAngle(a: number): number {
 }
 
 /**
+ * Nudges a chase-movement spawn position toward the room edge farthest
+ * from `enteredFrom` (the door the player is walking in through) — see
+ * CHASE_ENEMY_ENTRY_PUSH. No-ops for the very first room of a level, which
+ * has no enteredFrom (there's no "walking in" to react to).
+ */
+function pushAwayFromEntry(x: number, y: number, enteredFrom: Direction | undefined): Vec2 {
+  if (!enteredFrom) {
+    return { x, y }
+  }
+  switch (enteredFrom) {
+    case 'north':
+      return { x, y: Math.min(ARENA_MAX_Y, y + CHASE_ENEMY_ENTRY_PUSH) }
+    case 'south':
+      return { x, y: Math.max(ARENA_MIN_Y, y - CHASE_ENEMY_ENTRY_PUSH) }
+    case 'west':
+      return { x: Math.min(ARENA_MAX_X, x + CHASE_ENEMY_ENTRY_PUSH), y }
+    case 'east':
+      return { x: Math.max(ARENA_MIN_X, x - CHASE_ENEMY_ENTRY_PUSH), y }
+  }
+}
+
+/**
  * A projectile-vs-enemy collider registered by spawnEnemy (for an enemy
  * spawned mid-flight, e.g. a Splitter's children) is deliberately stored in
  * both roomEnemyColliders (so it's cleaned up when that enemy dies) and
@@ -118,12 +141,33 @@ const ENEMY_PROJECTILE_COLOR = 0xff3366
 const ENEMY_PROJECTILE_SPEED = 240
 /** Splitter's children spread out a little instead of stacking exactly on the death spot. */
 const SPLIT_SPAWN_OFFSET = 20
+/**
+ * How far a `movement: 'chase'` group's spawn nudges toward the room's far
+ * side from wherever the player just walked in — so a beelining enemy
+ * doesn't spawn right in the player's face at the door. Only chase movement
+ * gets this: 'bounce'/'erratic' don't target the player at all, ranged
+ * archetypes already keep their distance on their own, and 'charge' idles
+ * until triggered rather than closing in immediately. Clamped to the
+ * arena's safe area (roomLayouts.ts's ARENA_MIN/MAX) so the push can't
+ * shove them into a wall or another door.
+ */
+const CHASE_ENEMY_ENTRY_PUSH = 140
 
-/** Room-clear rewards (DESIGN.md §7, boost/life tier now; role items/holdables wait on the role system). */
+/**
+ * Room-clear rewards (DESIGN.md §7, boost/life tier now; role items/
+ * holdables wait on the role system). Both regular-room chances below only
+ * get rolled at all on a no-hit clear (see rollRoomClearReward/
+ * tookDamageThisRoom) — golden/boss rooms are unaffected, they're not
+ * "fights to play cleanly" in the same sense (golden has no enemies at
+ * all; boss's guaranteed drop is a separate, deliberate design choice).
+ * Both chances were bumped up from their pre-no-hit-gate values (0.3/0.15)
+ * so clearing a room untouched reads as a real, frequent reward instead of
+ * still often whiffing on top of already being the harder bar to clear.
+ */
 const REGULAR_REWARD_SPACING = 50
-const LIFE_ITEM_CHANCE = 0.15
-/** Global chance that a non-boss room drops a boost on clear — made deliberately rare since boost effects got a magnitude bump (items.ts) and golden/boss rooms now include boost items in their own guaranteed roll too. Tweakable. */
-const ROOM_DROP_CHANCE = 0.3
+const LIFE_ITEM_CHANCE = 0.3
+/** Chance that a no-hit non-boss room drops a boost on clear. Tweakable. */
+const ROOM_DROP_CHANCE = 0.6
 /** Extra shots fired in a spread when a player has picked up Multi Shot, in addition to the center shot. */
 const MULTI_SHOT_SPREAD_RADIANS = Phaser.Math.DegToRad(15)
 
@@ -142,7 +186,7 @@ const WATER_COLOR = 0x3366cc
 /**
  * The read-only shape any UI layer needs to draw doors/minimap/level
  * text/game-over — `GameSimulation` is the "real" implementer (host/solo);
- * `DevTestScene.ts` implements the same shape on itself for the joiner
+ * `CoopPlayScene.ts` implements the same shape on itself for the joiner
  * role, which has no `GameSimulation` to point at. Lets `ui/GameplayHud.ts`
  * serve both roles from one instance without knowing which it's talking to.
  */
@@ -157,7 +201,7 @@ export interface RoomUiState {
    * "Own"/"partner" are perspective-relative, not host/joiner-relative —
    * whichever implementer this is, `own` is always the player controlled
    * from *this* screen (GameSimulation only ever runs on the host's own
-   * machine, so `own` is hostPlayer there; DevTestScene's joiner-role
+   * machine, so `own` is hostPlayer there; CoopPlayScene's joiner-role
    * self-implementation is only ever used on the joiner's own screen, so
    * `own` is joinerPlayer there). `partner` is null in solo (no joiner).
    */
@@ -178,14 +222,14 @@ export interface GameSimulationOptions {
 
 /**
  * The role-agnostic core loop — rooms, enemies, projectiles, items, lives,
- * pause, level progression. Extracted from `DevTestScene.ts`, where solo
+ * pause, level progression. Extracted from `CoopPlayScene.ts`, where solo
  * mode and co-op's host role had always run this exact same code, just
  * duplicated in spirit (one class, no joiner slot, no connection) versus
  * (one class, joiner slot, PeerJS). `PlayScene.ts` (single-player) and
- * `DevTestScene.ts` (co-op, host role only) both construct one of these
+ * `CoopPlayScene.ts` (co-op, host role only) both construct one of these
  * and drive it; a co-op joiner never does — it never simulates anything,
  * so it has nothing in common with this class and keeps its own
- * render-only reconciliation code in `DevTestScene.ts` untouched.
+ * render-only reconciliation code in `CoopPlayScene.ts` untouched.
  *
  * Deliberately does NOT own: PeerJS/connection handling, the broadcast
  * timer, or any Phaser "chrome" — door/boss-hole graphics, the minimap,
@@ -235,6 +279,8 @@ export default class GameSimulation implements RoomUiState {
    * boss hole's radius the instant the boss dies.
    */
   private roomJustCleared = false
+  /** Reset on every loadRoom(), set by handleHit — gates the regular-room reward roll in rollRoomClearReward (no-hit clears only). */
+  private tookDamageThisRoom = false
 
   private level = 1
   /** Drives hasNeighbor/door logic, boss-room lookup, and the minimap. */
@@ -379,7 +425,7 @@ export default class GameSimulation implements RoomUiState {
       const nearest = this.getNearestPlayerPos(enemy.x, enemy.y)
       enemy.updateMovement(nearest, now)
       const fireAngles = enemy.tryFireAt(nearest, now)
-      fireAngles?.forEach((angle) => this.spawnEnemyProjectile(enemy.x, enemy.y, angle))
+      fireAngles?.forEach((angle) => this.spawnEnemyProjectile(enemy.x, enemy.y, angle, enemy.archetype.ranged?.range))
       const summonArchetype = enemy.trySummonAt(now)
       if (summonArchetype) {
         this.spawnEnemy(ARCHETYPES[summonArchetype], enemy.x, enemy.y)
@@ -536,6 +582,11 @@ export default class GameSimulation implements RoomUiState {
     }
   }
 
+  /** Dev-menu hook: jumps straight to `level`, regenerating a fresh floor exactly like stepping through a boss hole (see startLevel) — same re-teleport/rebroadcast, just skipping the actual clear. */
+  devJumpToLevel(level: number) {
+    this.startLevel(level)
+  }
+
   /** Dev-menu hook: applies an item straight to the host player, same reveal a real pickup gets. */
   giveItemToHostPlayer(itemId: ItemId) {
     this.applyGrantedItem(itemId, this.hostPlayer)
@@ -550,7 +601,7 @@ export default class GameSimulation implements RoomUiState {
     if (itemId === 'heart') {
       player.grantLife()
     } else if (itemId === 'heartContainer') {
-      player.increaseMaxLives(2)
+      player.increaseMaxLives(1)
     } else {
       player.applyItem(itemId)
     }
@@ -611,7 +662,7 @@ export default class GameSimulation implements RoomUiState {
     }
   }
 
-  /** Cleanup mirroring DevTestScene's old SHUTDOWN handler — destroys every Phaser GameObject this simulation owns. */
+  /** Cleanup mirroring CoopPlayScene's old SHUTDOWN handler — destroys every Phaser GameObject this simulation owns. */
   destroy() {
     this.hostPlayer.destroy()
     this.joinerPlayer?.destroy()
@@ -834,6 +885,8 @@ export default class GameSimulation implements RoomUiState {
 
     this.hostPlayer.teleport(HOST_START.x, HOST_START.y)
     this.joinerPlayer?.teleport(JOINER_START.x, JOINER_START.y)
+    this.hostBuddies.forEach((buddy) => buddy.teleport(HOST_START.x, HOST_START.y))
+    this.joinerBuddies.forEach((buddy) => buddy.teleport(JOINER_START.x, JOINER_START.y))
 
     this.loadRoom(this.currentFloor.startCoord)
 
@@ -852,6 +905,8 @@ export default class GameSimulation implements RoomUiState {
    * are already at their normal spawn points.
    */
   private loadRoom(coord: RoomCoord, enteredFrom?: Direction) {
+    this.tookDamageThisRoom = false
+
     this.roomEnemyColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.roomEnemyColliders.clear()
     this.roomEnemies.forEach((enemy) => enemy.destroy())
@@ -901,6 +956,8 @@ export default class GameSimulation implements RoomUiState {
       const [posA, posB] = getEntryPositions(enteredFrom)
       this.hostPlayer.teleport(posA.x, posA.y)
       this.joinerPlayer?.teleport(posB.x, posB.y)
+      this.hostBuddies.forEach((buddy) => buddy.teleport(posA.x, posA.y))
+      this.joinerBuddies.forEach((buddy) => buddy.teleport(posB.x, posB.y))
     }
 
     this.roomCoord = coord
@@ -913,7 +970,7 @@ export default class GameSimulation implements RoomUiState {
 
     const alreadyCleared = this.clearedRooms.some((cleared) => coordsEqual(cleared, coord))
     if (room && !alreadyCleared) {
-      this.spawnRoomEnemies(room)
+      this.spawnRoomEnemies(room, enteredFrom)
     }
     this.trackRoomCleared()
 
@@ -956,9 +1013,11 @@ export default class GameSimulation implements RoomUiState {
    * bucket lays its groups out along the same centered-line formula used
    * before obstacles existed, just parameterized by that bucket's anchor
    * instead of the old hardcoded ENEMY_SPAWN_CENTER — a room with only one
-   * anchor (the common case) produces identical output to before.
+   * anchor (the common case) produces identical output to before. Chase
+   * groups additionally get pushed toward the far side of the room from
+   * `enteredFrom` — see pushAwayFromEntry/CHASE_ENEMY_ENTRY_PUSH.
    */
-  private spawnRoomEnemies(room: RoomDefinition) {
+  private spawnRoomEnemies(room: RoomDefinition, enteredFrom: Direction | undefined) {
     const buckets = new Map<string, { anchor: { x: number; y: number }; groups: RoomEnemyGroup[] }>()
     for (const group of room.enemies) {
       const isRanged = ARCHETYPES[group.archetype].movement === 'keepDistance'
@@ -975,9 +1034,11 @@ export default class GameSimulation implements RoomUiState {
       const total = groups.reduce((sum, group) => sum + group.count, 0)
       for (const group of groups) {
         const archetype = ARCHETYPES[group.archetype]
+        const isChase = archetype.movement === 'chase'
         for (let i = 0; i < group.count; i++) {
           const x = anchor.x + (index - (total - 1) / 2) * ENEMY_SPAWN_SPACING
-          this.spawnEnemy(archetype, x, anchor.y)
+          const pos = isChase ? pushAwayFromEntry(x, anchor.y, enteredFrom) : { x, y: anchor.y }
+          this.spawnEnemy(archetype, pos.x, pos.y)
           index++
         }
       }
@@ -1119,6 +1180,13 @@ export default class GameSimulation implements RoomUiState {
     // ENEMY_SPAWN_CENTER constant, so a reward can never land inside a
     // pillar room's rocks (golden/boss above stay on the fixed constants
     // since those room types are always the obstacle-free empty layout).
+    // No-hit gate: a regular room only has a chance to drop anything at all
+    // if nobody took a hit while it was being cleared — rewards a clean
+    // clear instead of dropping regardless of how the fight went.
+    if (this.tookDamageThisRoom) {
+      return
+    }
+
     const anchor = getRoomDefinition(this.currentFloor.rooms, coord)?.enemyAnchor ?? ENEMY_SPAWN_CENTER
 
     // Global gate: boost drops only happen with ROOM_DROP_CHANCE probability.
@@ -1318,13 +1386,21 @@ export default class GameSimulation implements RoomUiState {
     }
   }
 
-  /** Spawns an enemy shot and wires overlap detection against whichever players currently exist. */
-  private spawnEnemyProjectile(x: number, y: number, angle: number) {
+  /**
+   * Spawns an enemy shot and wires overlap detection against whichever
+   * players currently exist. `range` should be the firing archetype's own
+   * `ranged.range` (falls back to PROJECTILE_MAX_RANGE) — otherwise a shot
+   * fired at max engage distance could despawn before ever reaching a
+   * player, making the archetype's real threat reach shorter than its
+   * stated engage range.
+   */
+  private spawnEnemyProjectile(x: number, y: number, angle: number, range?: number) {
     const id = this.nextEnemyProjectileId++
     const projectile = new Projectile(this.scene, id, x, y, angle, {
       simulated: true,
       color: ENEMY_PROJECTILE_COLOR,
       speed: ENEMY_PROJECTILE_SPEED,
+      range,
     })
     this.enemyProjectiles.set(id, projectile)
 
@@ -1372,6 +1448,7 @@ export default class GameSimulation implements RoomUiState {
   /** Applies a hit and checks for a simultaneous both-out game over (no joiner: hostPlayer alone). */
   private handleHit(player: Player) {
     player.applyHit(this.scene.time.now)
+    this.tookDamageThisRoom = true
 
     const hostOut = this.hostPlayer.isOut
     const joinerOut = this.joinerPlayer ? this.joinerPlayer.isOut : true

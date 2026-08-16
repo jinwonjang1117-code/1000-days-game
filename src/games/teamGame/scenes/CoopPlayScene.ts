@@ -1,8 +1,6 @@
 import Phaser from 'phaser'
 import type { DataConnection } from 'peerjs'
 import { TeamGameScenes } from '../sceneKeys'
-import { CoreScenes } from '../../../config/sceneKeys'
-import { navigateToHub } from '../../../router'
 import { getConnection, getRole, disconnectPeer } from '../net/peerConnection'
 import type {
   KeyState,
@@ -73,7 +71,7 @@ function keysEqual(a: KeyState, b: KeyState): boolean {
  * `PlayScene.ts`) — the joiner satisfies `RoomUiState` on itself (see the
  * `implements` below) since it has no `GameSimulation` to point at.
  */
-export default class DevTestScene extends Phaser.Scene implements RoomUiState {
+export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
   private role: 'host' | 'joiner' = 'host'
   private connection: DataConnection | null = null
   private cursorKeys!: Phaser.Types.Input.Keyboard.CursorKeys
@@ -113,7 +111,7 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
   private onClose?: () => void
 
   constructor() {
-    super({ key: TeamGameScenes.DevTest })
+    super({ key: TeamGameScenes.CoopPlay })
   }
 
   create() {
@@ -210,9 +208,10 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
       scene: this,
       title: '개발 테스트',
       subtitle: '화살표로 이동, 스페이스로 공격, ESC로 일시정지',
-      onReturnToHub: () => this.returnToHub(),
+      onReturnToLobby: () => this.returnToLobby(),
       onRequestPause: () => this.requestTogglePause(),
       onGiveItem: role === 'host' ? (itemId) => this.simulation?.giveItemToHostPlayer(itemId) : undefined,
+      onJumpToLevel: role === 'host' ? (level) => this.simulation?.devJumpToLevel(level) : undefined,
     })
 
     this.legendObjects.push(
@@ -242,8 +241,19 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
     const state = this.currentState()
 
     if (state.isGameOver) {
+      // Host only, in practice: the joiner's isGameOver flips inside the
+      // onData handler, which already calls hud.refresh() right there. The
+      // host's own isGameOver flips inside handleHit, reached via an Arcade
+      // physics overlap callback — those fire during Phaser's automatic
+      // physics step, before this update() runs for that same frame, so the
+      // exact transition frame would otherwise skip the refresh() call
+      // below (normally reached inside the role==='host' branch further
+      // down) and the host would never actually see the game-over text.
+      // Safe to call unconditionally either way — GameplayHud.showGameOver()
+      // already no-ops once the text exists.
+      this.hud?.refresh(state)
       if (Phaser.Input.Keyboard.JustDown(this.cursorKeys.space)) {
-        this.returnToHub()
+        this.returnToLobby()
       }
       return
     }
@@ -327,14 +337,13 @@ export default class DevTestScene extends Phaser.Scene implements RoomUiState {
     return hasNeighbor(this.floorRoomEntries, this.currentRoomCoord, direction)
   }
 
-  /** Shared by the "← 게임 허브" button and the game-over screen's Space shortcut. */
-  private returnToHub() {
+  /** Shared by the pause menu's lobby button and the game-over screen's Space shortcut — back to the team game's own lobby, not the shared multi-game hub, so no navigateToHub()/URL change here (same as the onClose/no-connection fallbacks elsewhere in this scene). */
+  private returnToLobby() {
     if (this.connection && this.onClose) {
       this.connection.off('close', this.onClose)
     }
     disconnectPeer()
-    navigateToHub()
-    this.scene.start(CoreScenes.MainMenu)
+    this.scene.start(TeamGameScenes.Lobby)
   }
 
   /**

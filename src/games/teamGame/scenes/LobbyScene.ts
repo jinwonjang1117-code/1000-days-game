@@ -259,7 +259,7 @@ export default class LobbyScene extends Phaser.Scene {
         .text(400, 380, '테스트 플레이 시작', MENU_BUTTON_STYLE)
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.scene.start(TeamGameScenes.DevTest)),
+        .on('pointerdown', () => this.scene.start(TeamGameScenes.CoopPlay)),
     )
 
     this.addBackToHubButton()

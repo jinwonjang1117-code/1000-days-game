@@ -48,6 +48,11 @@ export default class Buddy {
     this.shape.y = Phaser.Math.Linear(this.shape.y, targetY, FOLLOW_LERP_RATE)
   }
 
+  /** Instant snap, no lerp — call whenever the owning player teleports (room/level transitions) so the buddy doesn't get left behind in the old room and have to visibly race back across the new one. */
+  teleport(x: number, y: number) {
+    this.shape.setPosition(x, y)
+  }
+
   // ---- Render-only (joiner) ----
 
   applyReceivedState(pos: Vec2) {

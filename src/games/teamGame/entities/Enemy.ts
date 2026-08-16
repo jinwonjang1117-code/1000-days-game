@@ -12,10 +12,14 @@ const TELEGRAPH_COLOR = 0xffee00
 /** Berserker's sustained enraged tint — fixed regardless of archetype color, same "clear state signal" idea as the hit-flash. */
 const ENRAGE_COLOR = 0xff2222
 /** Erratic retargets to a new random direction/speed within this interval range. */
-const ERRATIC_RETARGET_MIN_MS = 600
-const ERRATIC_RETARGET_MAX_MS = 1400
+const ERRATIC_RETARGET_MIN_MS = 300
+const ERRATIC_RETARGET_MAX_MS = 1000
 /** Erratic's per-retarget speed is randomized down to this fraction of its base speed, at most its full base speed. */
-const ERRATIC_MIN_SPEED_FRACTION = 0.5
+const ERRATIC_MIN_SPEED_FRACTION = 0.3
+/** Charger's idle wander — calmer/slower than Erratic's retargeting (that's deliberately jittery for dodge-difficulty; this is just so it doesn't read as a frozen statue while it hasn't detected a player). */
+const CHARGER_IDLE_RETARGET_MIN_MS = 1200
+const CHARGER_IDLE_RETARGET_MAX_MS = 2400
+const CHARGER_IDLE_SPEED_FRACTION = 0.35
 
 const HEALTH_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -50,8 +54,8 @@ export default class Enemy {
   private attackState: AttackState = createAttackState()
   private summonState: AttackState = createAttackState()
   private hazardDropState: AttackState = createAttackState()
-  /** 'erratic' movement only — next time it picks a fresh random direction/speed. Starts at 0 so the very first frame retargets immediately. */
-  private nextErraticRetargetAt = 0
+  /** 'erratic' movement and 'charge's idle wander — next time it picks a fresh random direction/speed. Starts at 0 so the very first frame retargets immediately. */
+  private nextWanderRetargetAt = 0
   /** 'charge' movement only — see updateCharge. */
   private chargeState: 'idle' | 'telegraphing' | 'dashing' | 'cooldown' = 'idle'
   private chargeStateUntil = 0
@@ -117,11 +121,11 @@ export default class Enemy {
     }
 
     if (this.archetype.movement === 'erratic') {
-      if (now >= this.nextErraticRetargetAt) {
+      if (now >= this.nextWanderRetargetAt) {
         const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
         const speedMultiplier = Phaser.Math.FloatBetween(ERRATIC_MIN_SPEED_FRACTION, 1)
         this.body.setVelocity(Math.cos(angle) * this.archetype.speed * speedMultiplier, Math.sin(angle) * this.archetype.speed * speedMultiplier)
-        this.nextErraticRetargetAt = now + Phaser.Math.Between(ERRATIC_RETARGET_MIN_MS, ERRATIC_RETARGET_MAX_MS)
+        this.nextWanderRetargetAt = now + Phaser.Math.Between(ERRATIC_RETARGET_MIN_MS, ERRATIC_RETARGET_MAX_MS)
       }
       return
     }
@@ -144,7 +148,7 @@ export default class Enemy {
 
     // 'keepDistance': back away once a player gets within half the firing
     // range, otherwise hold position.
-    const retreatDistance = (this.archetype.ranged?.range ?? 200) / 2
+    const retreatDistance = (this.archetype.ranged?.range ?? 300) / 1.5
     const distance = Phaser.Math.Distance.Between(this.x, this.y, nearestPlayerPos.x, nearestPlayerPos.y)
     if (distance < retreatDistance) {
       const speed = this.effectiveSpeed()
@@ -156,7 +160,8 @@ export default class Enemy {
   }
 
   /**
-   * 'charge' movement's state machine: idle (no-op until a player is
+   * 'charge' movement's state machine: idle (subtle wander, same retarget
+   * shape as 'erratic' but calmer — see CHARGER_IDLE_* — until a player is
    * within triggerRange) -> telegraphing (stopped, tinted, direction
    * locked in now — not re-aimed later) -> dashing (committed straight
    * line at dashSpeed) -> cooldown (stopped) -> back to idle.
@@ -168,6 +173,12 @@ export default class Enemy {
     const { triggerRange, telegraphMs, dashSpeed, dashDurationMs, cooldownMs } = this.archetype.charge
 
     if (this.chargeState === 'idle') {
+      if (now >= this.nextWanderRetargetAt) {
+        const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
+        const wanderSpeed = this.archetype.speed * CHARGER_IDLE_SPEED_FRACTION
+        this.body.setVelocity(Math.cos(angle) * wanderSpeed, Math.sin(angle) * wanderSpeed)
+        this.nextWanderRetargetAt = now + Phaser.Math.Between(CHARGER_IDLE_RETARGET_MIN_MS, CHARGER_IDLE_RETARGET_MAX_MS)
+      }
       if (!nearestPlayerPos) {
         return
       }

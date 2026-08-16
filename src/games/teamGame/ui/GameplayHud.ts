@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { TOGGLE_BUTTON_STYLE, createAudioToggleButtons } from '../../../ui/audioToggles'
+import { createAudioToggleButtons } from '../../../ui/audioToggles'
 import type { RoomUiState } from '../simulation/GameSimulation'
 import { WORLD_WIDTH, WORLD_HEIGHT, DOOR_ZONES, BOSS_HOLE_CENTER, BOSS_HOLE_RADIUS } from '../simulation/GameSimulation'
 import type { Direction } from '../rooms/floorLayout'
@@ -28,12 +28,29 @@ const GAME_OVER_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   padding: { x: 24, y: 16 },
 }
 
+const GAME_OVER_HINT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '18px',
+  color: '#ffffff',
+  backgroundColor: '#000000c0',
+  padding: { x: 16, y: 8 },
+}
+
 const RESUME_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
   fontSize: '20px',
   color: '#000000',
   backgroundColor: '#ffcc00',
   padding: { x: 20, y: 10 },
+}
+
+/** A different tone from the resume button — leaving mid-run is a bigger action than un-pausing. */
+const LOBBY_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '16px',
+  color: '#000000',
+  backgroundColor: '#cccccc',
+  padding: { x: 16, y: 8 },
 }
 
 const DEV_GROUP_TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -48,6 +65,16 @@ const DEV_ITEM_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontSize: '12px',
   color: '#ffffff',
 }
+
+const DEV_LEVEL_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '14px',
+  color: '#000000',
+  backgroundColor: '#ffcc00',
+  padding: { x: 8, y: 4 },
+}
+/** Levels beyond this never actually generate (floorGenerator.ts's MAX_RAMP_LEVEL — level 10's "final boss only" floor doesn't exist yet), so the dev jump row stops here too. */
+const MAX_DEV_JUMP_LEVEL = 9
 
 const LEVEL_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -106,28 +133,33 @@ export interface GameplayHudOptions {
   scene: Phaser.Scene
   title: string
   subtitle: string
-  onReturnToHub: () => void
+  /** Back to the team game's own lobby (TeamGameScenes.Lobby) — not the shared multi-game hub. Only reachable via the pause menu once gameplay starts (see showPauseMenu) and the game-over screen's Space shortcut (stays in each scene's own `update()`). */
+  onReturnToLobby: () => void
   onRequestPause: () => void
   /** Provide to show the dev give-item menu (host/solo only) — gated on import.meta.env.DEV internally, not per call site. */
   onGiveItem?: (itemId: ItemId) => void
+  /** Provide to show the dev jump-to-level row (host/solo only) — gated on import.meta.env.DEV internally, not per call site. */
+  onJumpToLevel?: (level: number) => void
 }
 
 /**
  * The presentation layer shared by both `PlayScene.ts` (single-player)
- * and `DevTestScene.ts` (co-op, both roles) — doors, boss-hole, minimap,
+ * and `CoopPlayScene.ts` (co-op, both roles) — doors, boss-hole, minimap,
  * level text, game-over text, and the pause menu (incl. dev item-menu).
  * Driven entirely by `RoomUiState`, so it doesn't know or care whether
  * it's reading a live `GameSimulation` (solo/host) or a joiner's
  * received-and-mirrored render-only state — both satisfy the same shape.
  *
  * Deliberately NOT here: the co-op host/joiner legend text (doesn't apply
- * to single-player) and the game-over Space-to-hub shortcut (input
+ * to single-player) and the game-over Space-to-lobby shortcut (input
  * handling, stays in each scene's own `update()`).
  */
 export default class GameplayHud {
   private readonly scene: Phaser.Scene
   private readonly onRequestPause: () => void
+  private readonly onReturnToLobby: () => void
   private readonly onGiveItem?: (itemId: ItemId) => void
+  private readonly onJumpToLevel?: (level: number) => void
 
   private readonly sharedUiObjects: Phaser.GameObjects.GameObject[] = []
   private readonly doorGraphics: Partial<Record<Direction, Phaser.GameObjects.Rectangle>> = {}
@@ -137,22 +169,23 @@ export default class GameplayHud {
   private readonly ownHeartsText: Phaser.GameObjects.Text
   private readonly partnerHeartsText: Phaser.GameObjects.Text
   private gameOverText?: Phaser.GameObjects.Text
+  private gameOverHintText?: Phaser.GameObjects.Text
   private pauseMenuObjects: Phaser.GameObjects.GameObject[] = []
   private lastRenderedLevel = 0
 
   constructor(options: GameplayHudOptions) {
     this.scene = options.scene
     this.onRequestPause = options.onRequestPause
+    this.onReturnToLobby = options.onReturnToLobby
     this.onGiveItem = options.onGiveItem
+    this.onJumpToLevel = options.onJumpToLevel
 
+    // No always-visible "leave" button once gameplay starts — only reachable
+    // via the pause menu (see showPauseMenu) now, so it's not one more
+    // permanent UI element competing for space/attention during play.
     this.sharedUiObjects.push(
       this.scene.add.text(400, 40, options.title, TITLE_STYLE).setOrigin(0.5),
       this.scene.add.text(400, 74, options.subtitle, STATUS_STYLE).setOrigin(0.5),
-      this.scene.add
-        .text(16, 588, '← 게임 허브', TOGGLE_BUTTON_STYLE)
-        .setOrigin(0, 1)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => options.onReturnToHub()),
     )
 
     for (const direction of ALL_DIRECTIONS) {
@@ -223,6 +256,10 @@ export default class GameplayHud {
       return
     }
     this.gameOverText = this.scene.add.text(400, 300, '게임 오버', GAME_OVER_STYLE).setOrigin(0.5).setDepth(100)
+    this.gameOverHintText = this.scene.add
+      .text(400, 360, '스페이스바를 눌러 로비로 나가기', GAME_OVER_HINT_STYLE)
+      .setOrigin(0.5)
+      .setDepth(100)
   }
 
   showPauseMenu() {
@@ -241,20 +278,53 @@ export default class GameplayHud {
     const { musicButton, sfxButton } = createAudioToggleButtons(this.scene, { x: 400, y: 340, originX: 0.5 })
     musicButton.setDepth(200)
     sfxButton.setDepth(200)
+    const lobbyButton = this.scene.add
+      .text(700, 50, '로비로 나가기', LOBBY_BUTTON_STYLE)
+      .setOrigin(0.5)
+      .setDepth(200)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => this.onReturnToLobby())
 
-    this.pauseMenuObjects = [backdrop, title, resumeButton, musicButton, sfxButton]
+    this.pauseMenuObjects = [backdrop, title, resumeButton, musicButton, sfxButton, lobbyButton]
+
+    let devSectionTop = 400
+
+    // Dev-only: quick level-jump buttons, for testing later-level content (room mixing, tier retirement, boss/golden rooms) without playing through every level to get there.
+    if (import.meta.env.DEV && this.onJumpToLevel) {
+      const onJumpToLevel = this.onJumpToLevel
+      const levelTitle = this.scene.add
+        .text(400, devSectionTop, 'DEV: Jump to Level', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
+        .setOrigin(0.5)
+        .setDepth(210)
+      this.pauseMenuObjects.push(levelTitle)
+
+      const levels = Array.from({ length: MAX_DEV_JUMP_LEVEL }, (_, index) => index + 1)
+      const spacing = 40
+      const rowY = devSectionTop + 24
+      const startX = 400 - ((levels.length - 1) * spacing) / 2
+      levels.forEach((level, index) => {
+        const btn = this.scene.add
+          .text(startX + index * spacing, rowY, String(level), DEV_LEVEL_BUTTON_STYLE)
+          .setOrigin(0.5)
+          .setDepth(210)
+          .setInteractive({ useHandCursor: true })
+          .on('pointerdown', () => onJumpToLevel(level))
+        this.pauseMenuObjects.push(btn)
+      })
+      devSectionTop = rowY + 40
+    }
 
     // Dev-only: quick give-item buttons, for testing item effects without earning the drop.
     if (import.meta.env.DEV && this.onGiveItem) {
       const onGiveItem = this.onGiveItem
       const devTitle = this.scene.add
-        .text(400, 400, 'DEV: Give Items', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
+        .text(400, devSectionTop, 'DEV: Give Items', { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' })
         .setOrigin(0.5)
         .setDepth(210)
       this.pauseMenuObjects.push(devTitle)
 
-      this.renderDevItemGroup(240, 'Boosts', BOOST_ITEM_IDS, 0x222233, onGiveItem)
-      this.renderDevItemGroup(560, 'Strong Items', STRONG_ITEM_IDS, 0x332222, onGiveItem)
+      this.renderDevItemGroup(240, devSectionTop + 10, 'Boosts', BOOST_ITEM_IDS, 0x222233, onGiveItem)
+      this.renderDevItemGroup(560, devSectionTop + 10, 'Strong Items', STRONG_ITEM_IDS, 0x332222, onGiveItem)
     }
   }
 
@@ -267,6 +337,7 @@ export default class GameplayHud {
    */
   private renderDevItemGroup(
     centerX: number,
+    boxTop: number,
     title: string,
     ids: (BoostItemId | StrongItemId)[],
     bgColor: number,
@@ -276,7 +347,6 @@ export default class GameplayHud {
     const boxWidth = 320
     const rowHeight = 20
     const headerHeight = 34
-    const boxTop = 410
     const rows = Math.max(1, Math.ceil(ids.length / columns))
     const boxHeight = headerHeight + rows * rowHeight
     const boxCenterY = boxTop + boxHeight / 2
@@ -315,6 +385,7 @@ export default class GameplayHud {
     this.bossHoleGraphic.destroy()
     this.miniMap.destroy()
     this.gameOverText?.destroy()
+    this.gameOverHintText?.destroy()
     this.hidePauseMenu()
   }
 }

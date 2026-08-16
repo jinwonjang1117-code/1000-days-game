@@ -68,7 +68,7 @@ export function createDefaultStats(): PlayerStats {
 
 export interface ItemDefinition {
   id: BoostItemId | StrongItemId
-  /** The mechanical effect, shown to the player on pickup (see DevTestScene's showPickupText) — not a flavor name. */
+  /** The mechanical effect, shown to the player on pickup (see CoopPlayScene's showPickupText) — not a flavor name. */
   label: string
   color: number
   /** Relative spawn weight when chosen from a pool. Higher => more likely. Defaults to 1. */
@@ -126,7 +126,7 @@ export const BOOST_ITEMS: Record<BoostItemId, ItemDefinition> = {
     label: '감자 크기 상승',
     color: 0xcc99ff,
     weight: 0.75,
-    apply: (stats) => ({ ...stats, potatoSizeMultiplier: stats.potatoSizeMultiplier + 0.4 }),
+    apply: (stats) => ({ ...stats, potatoSizeMultiplier: stats.potatoSizeMultiplier + 0.3 }),
   },
   invincibility: {
     id: 'invincibility',
@@ -182,14 +182,14 @@ export const STRONG_ITEMS: Record<StrongItemId, ItemDefinition> = {
     weight: 0.5,
     apply: (stats) => ({ ...stats, hasMultiDirection: stats.hasMultiDirection + 1 }),
   },
-  // Not a PlayerStats mutator — like 'heart', its real effect (+2 max lives,
+  // Not a PlayerStats mutator — like 'heart', its real effect (+1 max lives,
   // filled immediately) is special-cased wherever an item is applied
   // (see GameSimulation's item-pickup handling). apply stays an identity
   // no-op purely so this can live in the same STAT_ITEMS lookup as
   // everything else (label, color, weighted-pick eligibility).
   heartContainer: {
     id: 'heartContainer',
-    label: '하트 컨테이너 (최대 생명력 +2)',
+    label: '하트 컨테이너 (최대 생명력 +1)',
     color: 0xff3377,
     weight: 0.5,
     apply: (stats) => stats,
@@ -284,7 +284,7 @@ export function getItemColor(id: StrongItemId): number {
   return STRONG_ITEMS[id].color
 }
 
-/** For the pickup-reveal text (shown on consumption, regardless of tier — see DevTestScene's showPickupText). */
+/** For the pickup-reveal text (shown on consumption, regardless of tier — see CoopPlayScene's showPickupText). */
 export function getItemLabel(id: ItemId): string {
   if (id === 'heart') {
     return '하트 (생명 회복)'
