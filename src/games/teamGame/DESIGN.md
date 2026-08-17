@@ -183,6 +183,8 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
 - **Single-sitting runs only** — no save/resume across sessions. This is why the pause system (section 2) matters — a 70-90 room run needs a real pause, not just a nice-to-have.
 - **Room structure variety** (built — `rooms/roomLayouts.ts`, `rooms/floorGenerator.ts`'s `pickRoomObstacles`): most rooms stay open, but a room can get **rock pillars** (4-8, scattered, block movement *and* projectiles) or, if it rolled a `keepDistance`/ranged enemy group (currently just Ranged shooter), a **water split** instead (blocks movement only — shots pass over freely) that keeps that group genuinely out of melee reach on the far side. Start/boss/golden rooms always stay open. Layouts are room-intrinsic, not entry-direction-aware — a small accepted rough edge, not a bug.
 
+**Regular-room variety (brainstorm, unsettled — every regular room is currently a fight, no exceptions; notes dropped ahead of actually revisiting this)**: every regular room being an enemy fight, every single time, might be too relentless across a 6-12-room floor. Worth brainstorming non-fight regular rooms as an occasional break in the pattern — e.g. a "free room" with just a few key/heart/coin pickups sitting out in the open, no enemies, no chest, nothing to fight for it. Undecided: how rare relative to a normal fight room, whether it should feel like a rest beat or still cost you something (a room you *could* have farmed for a fight-reward instead), and whether Treasure Chest rooms (§9) already cover some of this "occasional break" need or whether this is a genuinely separate idea worth its own room type.
+
 ---
 
 ## 9. Special Rooms
@@ -219,6 +221,11 @@ Unlike Golden/Boss/Devil's Room, this isn't a unique per-level room — it's a f
 
 - Isaac-style Greed Room idea: a special room appearing in one of the later levels where you can rack up a lot of coins — presumably some kind of wave/gauntlet you fight through (Isaac's version is a wave-based mini-fight with coins dropping throughout, capped off by a small boss), rather than a guaranteed sit-and-grab room like Golden Room.
 - Undecided: which level(s) it can appear on, trigger/access condition (a special door like Devil's Room, or just a room type that can roll into the floor layout), whether it's a fight or a timed grab, and how much currency it should realistically hand out relative to the regular per-room coin drop chance (§7). Depends on coins actually mattering somewhere (the shop, §13) to be worth the design effort — revisit together with that stage.
+
+### Angel Room (brainstorm, unsettled — not scoped, notes dropped ahead of any stage actually covering this)
+
+- A room that occasionally appears, at a **very low chance** — offering genuinely strong item choices, an Isaac-style counterpart to Devil's Room (which trades a cost for power; Angel Room would just be a clean, high-quality pick with no downside, the reward for luck rather than risk).
+- Undecided: exact appearance chance and what gates it (fully random per level, or tied to some condition like Devil's Room's no-hit trigger — in Isaac the two are mutually exclusive alternatives, worth considering that relationship here too), how many options it offers, whether its item pool is its own exclusive tier (like Devil's Room items) or just a guaranteed-great pull from the existing strong-item pool, and whether choosing Angel Room over Devil's Room (or vice versa) should be a deliberate one-or-the-other choice per level.
 
 ---
 
