@@ -205,11 +205,22 @@ export default class GameScene extends Phaser.Scene {
     this.isStageIntroActive = true
     this.isPlayerInvincible = true
     this.physics.world.pause()
+
+    const initialInvincibilityFlash = this.tweens.add({
+      targets: this.player,
+      alpha: 0.2,
+      duration: 100,
+      yoyo: true,
+      repeat: -1,
+    })
+
     this.time.delayedCall(getStageIntroDurationMs(stage.name), () => {
       this.isStageIntroActive = false
       this.physics.world.resume()
       this.time.delayedCall(STAGE_SPAWN_GRACE_MS, () => {
         this.isPlayerInvincible = false
+        initialInvincibilityFlash.stop()
+        this.player.setAlpha(1)
       })
     })
   }
