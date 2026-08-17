@@ -39,6 +39,23 @@ export interface RoomDefinition {
   chestAnchor: { x: number; y: number }
   /** Rolled once at floor-generation time (rooms/floorGenerator.ts) — regular rooms only, see CHEST_ROOM_CHANCE. */
   hasChest?: boolean
+  /**
+   * A guaranteed no-fight room (DESIGN.md §8) — always `enemies: []`. 'loot'
+   * guarantees 2-3 key/heart/coin pickups on entry (GameSimulation's
+   * rollRoomClearReward); 'empty' is a placeholder with no content yet
+   * (renders "FREE ROOM" — see RoomUiState.currentRoomPlaceholderLabel).
+   * At least one such room is guaranteed per floor (two from level 6 on),
+   * see rooms/floorGenerator.ts's guaranteedNoEnemyRoomCount.
+   */
+  noEnemyVariant?: 'loot' | 'empty'
+  /**
+   * Marks the (optional) Gamble Shrine room — DESIGN.md §8's brainstorm,
+   * placeholder-only for now (renders "GAMBLE ROOM", no real mechanic
+   * yet). An *extra* dead-end spur like boss/golden, not counted in the
+   * floor's normal room-count range — see rooms/floorGenerator.ts's
+   * GAMBLE_ROOM_CHANCE.
+   */
+  isGamble?: boolean
 }
 
 export function coordsEqual(a: RoomCoord, b: RoomCoord): boolean {

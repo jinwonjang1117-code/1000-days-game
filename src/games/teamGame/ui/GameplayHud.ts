@@ -1,7 +1,17 @@
 import Phaser from 'phaser'
 import { createAudioToggleButtons } from '../../../ui/audioToggles'
 import type { RoomUiState } from '../simulation/GameSimulation'
-import { WORLD_WIDTH, WORLD_HEIGHT, DOOR_ZONES, BOSS_HOLE_CENTER, BOSS_HOLE_RADIUS } from '../simulation/GameSimulation'
+import {
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
+  DOOR_ZONES,
+  BOSS_HOLE_CENTER,
+  BOSS_HOLE_RADIUS,
+  DEVIL_HOLE_CENTER,
+  DEVIL_HOLE_RADIUS,
+  DEVIL_EXIT_CENTER,
+  DEVIL_EXIT_RADIUS,
+} from '../simulation/GameSimulation'
 import type { Direction } from '../rooms/floorLayout'
 import { ALL_DIRECTIONS, getNeighborCoord, getRoomDefinition } from '../rooms/floorLayout'
 import type { BoostItemId, ItemId, StrongItemId } from '../gameplay/items'
@@ -34,6 +44,13 @@ const GAME_OVER_HINT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#ffffff',
   backgroundColor: '#000000c0',
   padding: { x: 16, y: 8 },
+}
+
+/** DESIGN.md §8's placeholder room types (Free Room's empty variant / Gamble Room) — a neutral design-placeholder look, deliberately not alarming like GAME_OVER_STYLE, since this isn't an error state. */
+const ROOM_PLACEHOLDER_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '32px',
+  color: '#888888',
 }
 
 const RESUME_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -120,6 +137,8 @@ const GOLDEN_DOOR_CLOSED_COLOR = 0x665200
 const BOSS_DOOR_OPEN_COLOR = 0xdd2222
 const BOSS_DOOR_CLOSED_COLOR = 0x551111
 const BOSS_HOLE_COLOR = 0x110022
+/** Devil's Room (DESIGN.md §9) — a hot red so it never reads as "the same hole" as the boss hole's cold near-black purple, even though both are the same shape/size sitting in the same room. */
+const DEVIL_HOLE_COLOR = 0x660000
 const MINI_MAP_MARGIN = 16
 const HEARTS_MARGIN = 16
 /** Vertical space reserved for the partner-hearts row above the minimap — the minimap itself is pushed down by this much. */
@@ -178,12 +197,17 @@ export default class GameplayHud {
   private readonly sharedUiObjects: Phaser.GameObjects.GameObject[] = []
   private readonly doorGraphics: Partial<Record<Direction, Phaser.GameObjects.Rectangle>> = {}
   private readonly bossHoleGraphic: Phaser.GameObjects.Arc
+  /** Only visible in the boss room, alongside the normal hole, once isDevilHoleAvailable. */
+  private readonly devilHoleGraphic: Phaser.GameObjects.Arc
+  /** Only visible while isInDevilRoom — leads back to the boss room you detoured from. */
+  private readonly devilExitGraphic: Phaser.GameObjects.Arc
   private readonly miniMap: MiniMap
   private readonly levelText: Phaser.GameObjects.Text
   private readonly coinText: Phaser.GameObjects.Text
   private readonly keyText: Phaser.GameObjects.Text
   private readonly ownHeartsText: Phaser.GameObjects.Text
   private readonly partnerHeartsText: Phaser.GameObjects.Text
+  private readonly roomPlaceholderText: Phaser.GameObjects.Text
   private gameOverText?: Phaser.GameObjects.Text
   private gameOverHintText?: Phaser.GameObjects.Text
   private pauseMenuObjects: Phaser.GameObjects.GameObject[] = []
@@ -217,6 +241,12 @@ export default class GameplayHud {
     this.bossHoleGraphic = this.scene.add
       .circle(BOSS_HOLE_CENTER.x, BOSS_HOLE_CENTER.y, BOSS_HOLE_RADIUS, BOSS_HOLE_COLOR)
       .setVisible(false)
+    this.devilHoleGraphic = this.scene.add
+      .circle(DEVIL_HOLE_CENTER.x, DEVIL_HOLE_CENTER.y, DEVIL_HOLE_RADIUS, DEVIL_HOLE_COLOR)
+      .setVisible(false)
+    this.devilExitGraphic = this.scene.add
+      .circle(DEVIL_EXIT_CENTER.x, DEVIL_EXIT_CENTER.y, DEVIL_EXIT_RADIUS, DEVIL_HOLE_COLOR)
+      .setVisible(false)
 
     // Minimap is pushed down to leave room for the partner-hearts row above it.
     this.miniMap = new MiniMap(this.scene, WORLD_WIDTH - MINI_MAP_MARGIN, MINI_MAP_MARGIN + PARTNER_HEARTS_ROW_HEIGHT)
@@ -231,18 +261,39 @@ export default class GameplayHud {
       .text(WORLD_WIDTH - MINI_MAP_MARGIN, MINI_MAP_MARGIN, '', PARTNER_HEARTS_STYLE)
       .setOrigin(1, 0)
       .setDepth(150)
-    this.sharedUiObjects.push(this.levelText, this.coinText, this.keyText, this.ownHeartsText, this.partnerHeartsText)
+    this.roomPlaceholderText = this.scene.add
+      .text(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, '', ROOM_PLACEHOLDER_STYLE)
+      .setOrigin(0.5)
+      .setDepth(90)
+    this.sharedUiObjects.push(
+      this.levelText,
+      this.coinText,
+      this.keyText,
+      this.ownHeartsText,
+      this.partnerHeartsText,
+      this.roomPlaceholderText,
+    )
   }
 
   /** Call once per tick (host/solo: every frame) or once per received message (joiner) — redraws doors, refreshes the minimap/level text, and shows the game-over text once state.isGameOver. */
   refresh(state: RoomUiState) {
     const clear = state.isRoomClear()
 
-    if (state.isCurrentRoomBoss()) {
+    if (state.isInDevilRoom) {
+      // Not a grid room — no doors, no boss hole, just the exit back.
+      Object.values(this.doorGraphics).forEach((rect) => rect?.setVisible(false))
+      this.bossHoleGraphic.setVisible(false)
+      this.devilHoleGraphic.setVisible(false)
+      this.devilExitGraphic.setVisible(true)
+    } else if (state.isCurrentRoomBoss()) {
       Object.values(this.doorGraphics).forEach((rect) => rect?.setVisible(false))
       this.bossHoleGraphic.setVisible(clear)
+      this.devilHoleGraphic.setVisible(clear && state.isDevilHoleAvailable)
+      this.devilExitGraphic.setVisible(false)
     } else {
       this.bossHoleGraphic.setVisible(false)
+      this.devilHoleGraphic.setVisible(false)
+      this.devilExitGraphic.setVisible(false)
       for (const direction of ALL_DIRECTIONS) {
         const rect = this.doorGraphics[direction]
         if (!rect) {
@@ -265,6 +316,7 @@ export default class GameplayHud {
 
     this.ownHeartsText.setText(heartRow(state.ownLives, state.ownMaxLives))
     this.partnerHeartsText.setText(state.partnerLives === null ? '' : heartRow(state.partnerLives, state.partnerMaxLives ?? 0))
+    this.roomPlaceholderText.setText(state.currentRoomPlaceholderLabel() ?? '')
 
     if (state.isGameOver) {
       this.showGameOver()
@@ -403,6 +455,8 @@ export default class GameplayHud {
     this.sharedUiObjects.forEach((object) => object.destroy())
     Object.values(this.doorGraphics).forEach((rect) => rect?.destroy())
     this.bossHoleGraphic.destroy()
+    this.devilHoleGraphic.destroy()
+    this.devilExitGraphic.destroy()
     this.miniMap.destroy()
     this.gameOverText?.destroy()
     this.gameOverHintText?.destroy()

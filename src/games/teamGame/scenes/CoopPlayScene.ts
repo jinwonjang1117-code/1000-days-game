@@ -12,6 +12,7 @@ import type {
   FollowerState,
   HazardZoneState,
   ChestState,
+  DevilPedestalState,
 } from '../net/syncProtocol'
 import { isInputMessage, isPauseToggleMessage, isLevelStartMessage, isStateMessage } from '../net/syncProtocol'
 import Player from '../entities/Player'
@@ -22,6 +23,9 @@ import Buddy from '../entities/Buddy'
 import OrbitingShield from '../entities/OrbitingShield'
 import HazardZone from '../entities/HazardZone'
 import Chest from '../entities/Chest'
+import GambleShrine from '../entities/GambleShrine'
+import DevilPedestal from '../entities/DevilPedestal'
+import type { DevilItemId } from '../gameplay/devilItems'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import { getItemLabel } from '../gameplay/items'
 import type { Direction, RoomCoord } from '../rooms/floorLayout'
@@ -100,6 +104,8 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
   isPaused = false
   coins = 0
   keys = 0
+  isInDevilRoom = false
+  isDevilHoleAvailable = false
   private projectiles: Map<number, Projectile> = new Map()
   private enemyProjectiles: Map<number, Projectile> = new Map()
   private itemPickups: Map<number, ItemPickup> = new Map()
@@ -107,8 +113,11 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
   private shields: Map<number, OrbitingShield> = new Map()
   private hazardZones: Map<number, HazardZone> = new Map()
   private chests: Map<number, Chest> = new Map()
+  private devilPedestals: Map<DevilItemId, DevilPedestal> = new Map()
   /** Purely visual — redrawn from floorRoomEntries whenever currentRoomCoord changes (see reconcileRoomObstacles). No physics: the joiner never locally simulates collision to begin with. */
   private roomObstacleGraphics: Phaser.GameObjects.Rectangle[] = []
+  /** Purely visual, like roomObstacleGraphics — redrawn from floorRoomEntries whenever currentRoomCoord changes (see drawGambleShrine). No dynamic broadcast state (unlike Chest): the shrine never disappears mid-visit, so isGamble + chestAnchor alone are enough to know whether/where to draw it. */
+  private gambleShrine: GambleShrine | null = null
 
   private lastSentKeys: KeyState = EMPTY_KEYS
   private lastSentFire = false
@@ -154,8 +163,12 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     this.hazardZones.clear()
     this.chests.forEach((chest) => chest.destroy())
     this.chests.clear()
+    this.devilPedestals.forEach((pedestal) => pedestal.destroy())
+    this.devilPedestals.clear()
     this.roomObstacleGraphics.forEach((rect) => rect.destroy())
     this.roomObstacleGraphics = []
+    this.gambleShrine?.destroy()
+    this.gambleShrine = null
     this.currentRoomCoord = ORIGIN_COORD
     this.currentLevel = 1
     this.floorRoomEntries = []
@@ -196,8 +209,12 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
       this.hazardZones.clear()
       this.chests.forEach((chest) => chest.destroy())
       this.chests.clear()
+      this.devilPedestals.forEach((pedestal) => pedestal.destroy())
+      this.devilPedestals.clear()
       this.roomObstacleGraphics.forEach((rect) => rect.destroy())
       this.roomObstacleGraphics = []
+      this.gambleShrine?.destroy()
+      this.gambleShrine = null
     })
 
     const connection = getConnection()
@@ -351,6 +368,17 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     return hasNeighbor(this.floorRoomEntries, this.currentRoomCoord, direction)
   }
 
+  currentRoomPlaceholderLabel(): string | null {
+    const room = getRoomDefinition(this.floorRoomEntries, this.currentRoomCoord)
+    if (room?.noEnemyVariant === 'empty') {
+      return 'FREE ROOM'
+    }
+    if (room?.isGamble) {
+      return 'GAMBLE ROOM'
+    }
+    return null
+  }
+
   /** Shared by the pause menu's lobby button and the game-over screen's Space shortcut — back to the team game's own lobby, not the shared multi-game hub, so no navigateToHub()/URL change here (same as the onClose/no-connection fallbacks elsewhere in this scene). */
   private returnToLobby() {
     if (this.connection && this.onClose) {
@@ -462,6 +490,7 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
         joinerPlayer.resetInterpolation()
         this.currentRoomCoord = data.roomCoord
         this.drawRoomObstacles()
+        this.drawGambleShrine()
       }
 
       hostPlayer.applyReceivedState(data.host)
@@ -475,12 +504,15 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
       this.reconcileShields(data.shields)
       this.reconcileHazardZones(data.hazardZones)
       this.reconcileChests(data.chests)
+      this.reconcileDevilPedestals(data.devilPedestals)
       this.exploredRooms = data.exploredRooms
 
       this.isGameOver = data.isGameOver
       this.isPaused = data.isPaused
       this.coins = data.coins
       this.keys = data.keys
+      this.isInDevilRoom = data.isInDevilRoom
+      this.isDevilHoleAvailable = data.isDevilHoleAvailable
       if (data.isPaused) {
         this.hud?.showPauseMenu()
       } else {
@@ -638,6 +670,24 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     }
   }
 
+  /** Joiner-only: same create/destroy-on-presence reconciliation as reconcileChests — id doubles as the DevilItemId (see DevilPedestalState), so it works as a Map key directly. */
+  private reconcileDevilPedestals(received: DevilPedestalState[]) {
+    const receivedIds = new Set(received.map((pedestal) => pedestal.id))
+
+    for (const [id, pedestal] of this.devilPedestals) {
+      if (!receivedIds.has(id)) {
+        pedestal.destroy()
+        this.devilPedestals.delete(id)
+      }
+    }
+
+    for (const state of received) {
+      if (!this.devilPedestals.has(state.id)) {
+        this.devilPedestals.set(state.id, new DevilPedestal(this, state.id, state.pos.x, state.pos.y, { simulated: false }))
+      }
+    }
+  }
+
   /** Joiner-only: same reconciliation as reconcileProjectiles — Buddies persist across rooms host-side, but this side just tracks whatever ids are currently reported. */
   private reconcileBuddies(received: FollowerState[]) {
     const receivedIds = new Set(received.map((buddy) => buddy.id))
@@ -700,5 +750,16 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
         ),
       )
     })
+  }
+
+  /** Joiner-only, purely visual — see the field comment on gambleShrine for why this doesn't need broadcast reconciliation like Chest does. */
+  private drawGambleShrine() {
+    this.gambleShrine?.destroy()
+    this.gambleShrine = null
+
+    const room = getRoomDefinition(this.floorRoomEntries, this.currentRoomCoord)
+    if (room?.isGamble) {
+      this.gambleShrine = new GambleShrine(this, room.chestAnchor.x, room.chestAnchor.y, { simulated: false })
+    }
   }
 }

@@ -125,8 +125,8 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
    - **Heart Container** (stacks) — +1 max lives, fills the new capacity immediately (§3)
 6. **Role items** — define/change which of the 7 roles a player has (§5). Sourced the same way as strong items (golden/boss rooms), but a **separate, single-equip category**: picking one up replaces whatever role you currently had, it doesn't stack. No scheduled drops anymore — purely find-based, including no role at all being a normal early-run state.
 7. **Devil's Room items** — exclusive to the Devil's Room (§9), never found anywhere else. Deliberately risk/reward: most cost something real (usually a max heart container) for an outsized payoff.
-8. **Coins** — currency, groundwork for a future shop (§13, not yet designed). **Team-shared, not per-player** — one pool for the whole run, matching the shared-room co-op model. Regular room-clear drop, same chance class as life items; nothing spends them yet.
-9. **Keys** — opens a Treasure Chest (§9). **Team-shared, not per-player**, same pooling as coins. Regular room-clear drop (20% of clears), unconditional like coin/life — not gated by the boost tier's no-hit requirement.
+8. **Coins** — currency, groundwork for a future shop (§13, not yet designed). **Team-shared, not per-player** — one pool for the whole run, matching the shared-room co-op model. Regular room-clear drop, same chance class as life items. Spent at the Gamble Shrine (§8) — the shop itself still has nothing to spend them on.
+9. **Keys** — opens a Treasure Chest (§9). **Team-shared, not per-player**, same pooling as coins. Regular room-clear drop (15% of clears), unconditional like coin/life — not gated by the boost tier's no-hit requirement.
 
 **Mystery pickups** (settled): every regular-tier pickup (boost, life, coin, key, and the joke Fart item below) looks identical on the ground — one generic unidentified visual — so the effect is only revealed on pickup, not before. Strong items, role items, and Devil's Room items are all the exception: they're visually identified, since they're an earned reward rather than a grab-bag roll.
 
@@ -159,7 +159,7 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
 
 ## 8. Run Structure
 
-- **10 levels total**, each a mini-floor of **6-12 rooms**.
+- **10 levels total**, each a mini-floor of **7-13 rooms**.
 - **Mini-boss at the end of every level** (1-9); **final boss on level 10** (no regular rooms that level).
 - **One Golden Room per level** (no fight, guaranteed strong/role item) — see §9.
 - Role items no longer have scheduled drops (retired along with the old role-acquisition rules, §5) — purely sourced from golden/boss rooms now, same as strong items.
@@ -183,12 +183,14 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
 - **Single-sitting runs only** — no save/resume across sessions. This is why the pause system (section 2) matters — a 70-90 room run needs a real pause, not just a nice-to-have.
 - **Room structure variety** (built — `rooms/roomLayouts.ts`, `rooms/floorGenerator.ts`'s `pickRoomObstacles`): most rooms stay open, but a room can get **rock pillars** (4-8, scattered, block movement *and* projectiles) or, if it rolled a `keepDistance`/ranged enemy group (currently just Ranged shooter), a **water split** instead (blocks movement only — shots pass over freely) that keeps that group genuinely out of melee reach on the far side. Start/boss/golden rooms always stay open. Layouts are room-intrinsic, not entry-direction-aware — a small accepted rough edge, not a bug.
 
-**Regular-room variety (brainstorm — direction agreed, exact numbers still open; notes dropped ahead of actually revisiting this)**: every regular room being an enemy fight, every single time, might be too relentless across a 6-12-room floor. Two non-fight regular room types, each **~10% of regular rooms** (so together roughly the same order of magnitude as Treasure Chest's 20%, split across two flavors instead of one):
+**Regular-room variety (settled and built)**: every regular room being an enemy fight, every single time, felt too relentless across a 7-13-room floor. Two mechanisms address this:
 
-- **Free Loot Room** — open room, no enemies, no chest. **Guaranteed 2-3 pickups** (key/heart/coin) sitting out in plain sight — deliberately *not* just running the normal independent coin/heart/key drop chances, since with no fight to justify the visit, a room that could roll nothing at all would feel like a dud rather than a breather. Exact pickup mix/weighting still open.
-- **Gamble Shrine** — open room, no enemies, no chest. Spend coins for a randomized payout — could whiff small or hit big. Distinct from the free room's guaranteed-and-predictable feel (variance vs. certainty), and gives coins something to actually do before the real shop (§13) exists. Still fully open: cost per pull, payout table/odds, whether it's a one-shot-per-visit thing or repeatable as long as you keep paying.
+- **Guaranteed no-enemy rooms** — at least 1 per floor on levels 1-5, 2 from level 6 on. Picked from the floor's core layout (never the start room, never a boss/golden/gamble spur — converting a core room to no-fight content doesn't touch the floor's connectivity at all, just its content) at floor-generation time. Each independently rolls 50/50 between:
+  - **Free Loot Room** — guaranteed 2-3 pickups, each independently a random pick from key/heart/coin (duplicates allowed), scattered around the room. Deliberately *not* the normal independent coin/heart/key drop chances, since with no fight to justify the visit, a room that could roll nothing at all would feel like a dud rather than a breather.
+  - **Empty Room** — placeholder only for now ("FREE ROOM" text in the middle, no mechanic) — real content still to be designed.
+- **Gamble Shrine** — a 10% per-level chance of one extra room, structured like the Golden/Boss dead-end spurs but genuinely optional (no fallback if no valid spot — most levels don't get one at all) and **not counted in the floor's 7-13 room range**, same as how boss/golden aren't part of that budget either. Repeatable while you're in the room and can afford it (a level never comes back once you leave, so no farming-loop risk): pay 3 coins, roll one weighted outcome — 30% bust, 25% refund (+1 coin), 20% heart, 15% key, 8% boost item, 2% jackpot (a random strong item, a step up from the boost-item outcome). Gives coins something to actually do before the real shop (§13) exists.
 
-Both still open on: exact trigger mechanism (floor-gen room-type roll, same tier as Treasure Chest's `hasChest`), and whether Treasure Chest rooms already cover enough of the "occasional break in the fighting" need that adding two *more* room types on top risks diluting how often a room is a genuine fight.
+Open follow-up: whether Treasure Chest rooms (still full fights, just with an extra fixture) already cover enough of the "occasional break in the fighting" need that these two *fight-free* room types on top of it are the right amount of non-combat content, or too much/too little — worth a real look once there's been actual playtesting.
 
 ---
 
@@ -211,16 +213,16 @@ Unlike Golden/Boss/Devil's Room, this isn't a unique per-level room — it's a f
 - **15% mimic**: instead of the above, the chest springs 2 Swarmers on you and gives nothing. These don't block the room from reading as clear and can't re-close its doors — leaving is always allowed; walking away just leaves them behind (they don't persist to a return visit).
 - Opened chests don't come back on a later visit to the same room.
 
-### Devil's Room (settled)
+### Devil's Room (built)
 
 - **Trigger**: clearing the level's boss room **without taking a hit** during that fight. Miss the no-hit condition and the room simply isn't there this level — no consolation prize.
-- **A real, separate room** (not just a reward screen) — reachable through a distinct door/portal in the boss room, deliberately its own space so it can eventually get its own visual/audio identity (lighting, BGM) instead of reusing a normal room's look.
-- **Choice, not a pickup**: offers **2-3 options**, take exactly one. The others are gone once you choose — no "grab them all."
-- **Devil's Room items are exclusive** — never appear anywhere else (not golden rooms, not boss rooms). Built around real risk, usually a permanent cost (most often a max heart container, §3) for an outsized payoff — meaningfully stronger and/or stranger than anything in the regular strong-item pool, since the cost is what justifies the power. First few concepts (not final): **Blood Pact** (-1 max heart container, +75% damage), **Demon's Eye** (-1 max heart container, gain/stack Homing), **Soul Siphon** (-1 max heart container, kills have a chance to drop a heart), **Reckless Vow** (no upfront cost — your next would-be-fatal hit this level instead triggers a big temporary buff).
-
-**Co-op-specific brainstorm (unsettled — notes dropped ahead of Stage 11 actually starting, not yet designed in detail):**
-- The cost of a Devil's Room item could come out of your **teammate's** max hearts instead of (or as an option alongside) your own — a genuinely co-op-flavored risk/reward twist, since it turns the choice into something the two players have to actually negotiate rather than a solo min-max call. Open question: always partner-cost, always self-cost, or a pick-your-poison per item?
-- **Idea — "shared consumption" item**: each player receives a copy of every strong item their teammate has picked up so far this run (so both end up holding the union of what either of you has found individually). Cost: both players' max heart capacity drops to 1. Extremely high-risk, run-defining swing pick — needs real playtesting to see if it's ever correctly the right choice or just a trap.
+- **A real, separate room** (not just a reward screen), but not a grid room either — it's a detour off the boss room specifically (reached through a second hole that appears alongside the normal level-up hole), not a room that participates in the floor's normal layout/door system. Leaving through it always brings you back to the same boss room, whether or not you chose anything — the normal boss hole is still there for when you're ready to actually advance.
+- **Choice, not a pickup**: offers 2-3 pedestals (2 in solo — see below), take exactly one — the others vanish the instant you pick, no "grab them all."
+- **Devil's Room items are exclusive** — never appear anywhere else. The roster is intentionally small for now (3 items), all costing a max heart container (§3) rather than the "usually" from the original draft — every current item has a real cost:
+  - **Shared Consumption** — co-op only (needs a teammate to share with, so it's excluded from the solo pedestal set entirely). Both players' max heart capacity crushes to 1; each player receives a copy of every strong item the *other* has collected so far this run, so both end up holding the true union of what either found individually.
+  - **Blood Pact** — your **teammate** loses 1 max heart container (solo: costs yourself, since there's no teammate to pay); you gain +50% damage.
+  - **Turret Pact** — your **teammate** loses 1 max heart container (same solo fallback); you gain an Orbiting Shield, and *every* Orbiting Shield you own — the new one and any you already had — starts firing like a Buddy whenever you do, and renders in a distinct "turret" look.
+  - All three are teammate-cost by default on purpose — a deliberate co-op-flavored twist where the pick is also a negotiation, not just a personal power budget.
 
 ### Greed Room (brainstorm, unsettled — not scoped, notes dropped ahead of any stage actually covering this)
 

@@ -28,8 +28,8 @@ function clampLevel(level: number): number {
   return Math.min(level, MAX_RAMP_LEVEL)
 }
 
-const MIN_ROOMS_PER_LEVEL = 6
-const MAX_ROOMS_PER_LEVEL = 12
+const MIN_ROOMS_PER_LEVEL = 7
+const MAX_ROOMS_PER_LEVEL = 13
 
 /** Ramps linearly from MIN_ROOMS_PER_LEVEL at level 1 to MAX_ROOMS_PER_LEVEL at MAX_RAMP_LEVEL. */
 function roomCountForLevel(level: number): number {
@@ -141,6 +141,15 @@ const WATER_LAYOUT_CHANCE = 0.5
 const PILLAR_LAYOUT_CHANCE = 0.75
 /** Chance a regular room (not start/boss/golden) has a Treasure Chest (DESIGN.md §9) — decided once at floor-generation time, same as everything else about room structure. */
 const CHEST_ROOM_CHANCE = 0.2
+/** Chance of independently 'loot' vs 'empty' for each guaranteed no-enemy room (DESIGN.md §8). */
+const NO_ENEMY_LOOT_CHANCE = 0.5
+/** Chance a level additionally gets a Gamble Shrine room (DESIGN.md §8) — an *extra* dead-end spur like boss/golden, not counted in roomCountForLevel. */
+const GAMBLE_ROOM_CHANCE = 0.1
+
+/** At least one guaranteed no-fight room per floor; two from level 6 on (DESIGN.md §8) — a flat threshold, not part of the difficulty ramp. */
+function guaranteedNoEnemyRoomCount(level: number): number {
+  return level <= 5 ? 1 : 2
+}
 
 /** Room structure (DESIGN.md §9) — a room with a keepDistance/ranged group (only rangedShooter today, checked by movement type rather than a hardcoded archetype id) can get a water split so the ranged group lands genuinely out of melee reach; everything else can get scattered rock pillars instead. */
 function pickRoomObstacles(enemies: RoomEnemyGroup[]): RoomObstacleLayout {
@@ -259,7 +268,25 @@ export function generateFloor(level: number): GeneratedFloor {
   const withBossSet = new Set([...coreSet, coordKey(bossCoord)])
   const goldenCoord = findDeadEndSpot(shuffled(coreCoords), withBossSet) ?? coreCoords[0]
 
-  const coords = [...coreCoords, bossCoord, goldenCoord]
+  // Gamble Shrine (DESIGN.md §8, brainstorm) — like boss/golden, a
+  // guaranteed-degree-1 spur, but genuinely optional: unlike them it has no
+  // fallback coord, since GAMBLE_ROOM_CHANCE means most levels don't get
+  // one at all. Anchored off the combined boss+golden set so it can't land
+  // adjacent to either.
+  const withGoldenSet = new Set([...withBossSet, coordKey(goldenCoord)])
+  const gambleCoord = Math.random() < GAMBLE_ROOM_CHANCE ? findDeadEndSpot(shuffled(coreCoords), withGoldenSet) : null
+
+  // Guaranteed no-enemy rooms (DESIGN.md §8) — picked from the core layout
+  // (never the start room, never a spur), so converting one to no-fight
+  // content doesn't touch the floor's connectivity at all, just its
+  // per-room content. Each independently rolls loot-vs-empty.
+  const noEnemyEligible = coreCoords.filter((coord) => !coordsEqual(coord, START_COORD))
+  const noEnemyCoords = shuffled(noEnemyEligible).slice(0, guaranteedNoEnemyRoomCount(level))
+  const noEnemyVariants = new Map(
+    noEnemyCoords.map((coord) => [coordKey(coord), Math.random() < NO_ENEMY_LOOT_CHANCE ? 'loot' : 'empty'] as const),
+  )
+
+  const coords = [...coreCoords, bossCoord, goldenCoord, ...(gambleCoord ? [gambleCoord] : [])]
 
   const rooms: RoomDefinition[] = coords.map((coord) => {
     if (coordsEqual(coord, START_COORD)) {
@@ -270,6 +297,13 @@ export function generateFloor(level: number): GeneratedFloor {
     }
     if (coordsEqual(coord, goldenCoord)) {
       return { coord, enemies: [], isGolden: true, ...EMPTY_LAYOUT }
+    }
+    if (gambleCoord && coordsEqual(coord, gambleCoord)) {
+      return { coord, enemies: [], isGamble: true, ...EMPTY_LAYOUT }
+    }
+    const noEnemyVariant = noEnemyVariants.get(coordKey(coord))
+    if (noEnemyVariant) {
+      return { coord, enemies: [], noEnemyVariant, ...EMPTY_LAYOUT }
     }
     const enemies = pickRoomEnemies(level)
     return { coord, enemies, hasChest: Math.random() < CHEST_ROOM_CHANCE, ...pickRoomObstacles(enemies) }

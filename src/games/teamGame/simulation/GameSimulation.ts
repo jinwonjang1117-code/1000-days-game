@@ -8,11 +8,17 @@ import Buddy from '../entities/Buddy'
 import OrbitingShield from '../entities/OrbitingShield'
 import HazardZone from '../entities/HazardZone'
 import Chest from '../entities/Chest'
+import DevilPedestal from '../entities/DevilPedestal'
+import GambleShrine from '../entities/GambleShrine'
 import type { EnemyArchetype } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
-import type { ItemId } from '../gameplay/items'
-import { getItemLabel, randomBoostItemId, randomRewardItemIds, STAT_ITEMS } from '../gameplay/items'
+import type { ItemId, StrongItemId } from '../gameplay/items'
+import { getItemLabel, randomBoostItemId, randomStrongItemId, randomRewardItemIds, STAT_ITEMS, STRONG_ITEMS } from '../gameplay/items'
+import type { DevilItemId } from '../gameplay/devilItems'
+import { DEVIL_ITEMS, availableDevilItemIds } from '../gameplay/devilItems'
 import { bonusContainersForLevel } from '../gameplay/lives'
+import type { AttackState } from '../gameplay/attack'
+import { createAttackState, canFire, recordFire } from '../gameplay/attack'
 import type { Direction, RoomCoord, RoomDefinition, RoomEnemyGroup } from '../rooms/floorLayout'
 import { ALL_DIRECTIONS, getRoomDefinition, getNeighborCoord, hasNeighbor, oppositeDirection, coordsEqual } from '../rooms/floorLayout'
 import type { GeneratedFloor } from '../rooms/floorGenerator'
@@ -49,6 +55,23 @@ export const DOOR_ZONES: Record<Direction, DoorZone> = {
 /** The boss room has no directional doors — clearing it reveals this instead, in the room's center. */
 export const BOSS_HOLE_CENTER = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 }
 export const BOSS_HOLE_RADIUS = 36
+
+/** Devil's Room (DESIGN.md §9) — a second hole, only present alongside the normal one when devilRoomAvailable, off to the side so the two are never confused. Reused as GameplayHud's graphic position too. */
+export const DEVIL_HOLE_CENTER = { x: 150, y: 150 }
+export const DEVIL_HOLE_RADIUS = 36
+/**
+ * Devil's Room isn't a grid room — it reuses the same 800x600 canvas, just
+ * laid out with fixed pedestal/exit/spawn positions instead of doors.
+ * Deliberately NOT stacked in a straight vertical line between spawn and
+ * the pedestals — the exit sits off in a corner instead, so walking
+ * straight from spawn toward the pedestals can never clip through it.
+ */
+export const DEVIL_ROOM_PEDESTAL_ANCHOR = { x: WORLD_WIDTH / 2, y: 220 }
+const DEVIL_ROOM_PEDESTAL_SPACING = 150
+export const DEVIL_EXIT_CENTER = { x: WORLD_WIDTH - 100, y: WORLD_HEIGHT - 80 }
+export const DEVIL_EXIT_RADIUS = 36
+const DEVIL_ROOM_HOST_SPAWN = { x: WORLD_WIDTH / 2 - 50, y: WORLD_HEIGHT - 80 }
+const DEVIL_ROOM_JOINER_SPAWN = { x: WORLD_WIDTH / 2 + 50, y: WORLD_HEIGHT - 80 }
 
 function isInsideZone(x: number, y: number, zone: DoorZone): boolean {
   return x >= zone.x && x <= zone.x + zone.width && y >= zone.y && y <= zone.y + zone.height
@@ -133,6 +156,29 @@ function rollChestCoinCount(): number {
   return 0
 }
 
+type GambleOutcome = 'bust' | 'refund' | 'heart' | 'key' | 'boost' | 'jackpot'
+
+/** Gamble Shrine's per-pull outcome — one weighted pick: 30% bust, 25% refund, 20% heart, 15% key, 8% boost item, 2% jackpot (strong item). */
+function rollGambleOutcome(): GambleOutcome {
+  const r = Math.random()
+  if (r < 0.3) {
+    return 'bust'
+  }
+  if (r < 0.55) {
+    return 'refund'
+  }
+  if (r < 0.75) {
+    return 'heart'
+  }
+  if (r < 0.9) {
+    return 'key'
+  }
+  if (r < 0.98) {
+    return 'boost'
+  }
+  return 'jackpot'
+}
+
 /**
  * A projectile-vs-enemy collider registered by spawnEnemy (for an enemy
  * spawned mid-flight, e.g. a Splitter's children) is deliberately stored in
@@ -192,7 +238,7 @@ const LIFE_ITEM_CHANCE = 0.25
 /** Coins are groundwork for the future shop (roadmap stage 13, CLAUDE.md) — nothing spends them yet. */
 const COIN_DROP_CHANCE = 0.5
 /** Opens a Chest — see the Chest section below. Unconditional, same class as coin/life. */
-const KEY_DROP_CHANCE = 0.2
+const KEY_DROP_CHANCE = 0.15
 /** Chance that a no-hit non-boss room drops a boost on clear. Tweakable. */
 const ROOM_DROP_CHANCE = 0.6
 /**
@@ -227,6 +273,22 @@ const CHEST_KEY_CHANCE = 0.5
 const CHEST_BOOST_CHANCE = 0.1
 const CHEST_REWARD_SCATTER_MIN_DISTANCE = 30
 const CHEST_REWARD_SCATTER_MAX_DISTANCE = 90
+/** Free Loot Room (DESIGN.md §8) — guaranteed 2-3 pickups, each independently a random pick from this pool (duplicates allowed), scattered around the room's enemyAnchor. */
+const FREE_ROOM_LOOT_POOL: ItemId[] = ['key', 'heart', 'coin']
+const FREE_ROOM_LOOT_MIN = 2
+const FREE_ROOM_LOOT_MAX = 3
+const FREE_ROOM_SCATTER_MIN_DISTANCE = 40
+const FREE_ROOM_SCATTER_MAX_DISTANCE = 150
+/**
+ * Gamble Shrine (DESIGN.md §8, brainstorm) — costs GAMBLE_PULL_COST coins
+ * per pull, cooldown-gated (GAMBLE_PULL_COOLDOWN_MS) so standing on it
+ * doesn't spam-pull every physics frame. One weighted outcome roll per
+ * pull (rollGambleOutcome) — bust/refund/heart/key/boost/jackpot, summing
+ * to 100%; jackpot draws from the strong-item pool specifically, a step up
+ * from the separate, more common boost-item outcome.
+ */
+const GAMBLE_PULL_COST = 3
+const GAMBLE_PULL_COOLDOWN_MS = 600
 /** Extra shots fired in a spread when a player has picked up Multi Shot, in addition to the center shot. */
 const MULTI_SHOT_SPREAD_RADIANS = Phaser.Math.DegToRad(15)
 
@@ -275,6 +337,12 @@ export interface RoomUiState {
   isCurrentRoomBoss(): boolean
   isRoomClear(): boolean
   isDirectionOpen(direction: Direction): boolean
+  /** DESIGN.md §8's placeholder room types — 'FREE ROOM' / 'GAMBLE ROOM' while their real content is still unbuilt, null everywhere else. */
+  currentRoomPlaceholderLabel(): string | null
+  /** Devil's Room (DESIGN.md §9) isn't a normal grid room — GameplayHud checks this first to suppress normal doors/the boss hole and render the devil room's own graphics instead. */
+  readonly isInDevilRoom: boolean
+  /** True for the rest of a no-hit boss-room visit — drives whether the devil hole graphic shows up alongside the normal boss hole. */
+  readonly isDevilHoleAvailable: boolean
 }
 
 export interface GameSimulationOptions {
@@ -379,6 +447,23 @@ export default class GameSimulation implements RoomUiState {
   private chest: Chest | null = null
   private chestColliders: Phaser.Physics.Arcade.Collider[] = []
   private nextChestId = 0
+
+  /** The Gamble Shrine (DESIGN.md §8) — room-scoped like Chest, but unlike Chest it isn't destroyed on use, only on loadRoom teardown. shrinePullState cooldown-gates repeated pulls (otherwise standing on it would pull every physics frame). */
+  private shrine: GambleShrine | null = null
+  private shrineColliders: Phaser.Physics.Arcade.Collider[] = []
+  private shrinePullState: AttackState = createAttackState()
+
+  // Devil's Room (DESIGN.md §9) — isn't a normal grid room, see enterDevilRoom.
+  /** Every strong item id, in order, this specific player has ever collected — Shared Consumption replays the *other* player's history onto whoever picks it (see applyGrantedItem/handleDevilPedestalTouch). */
+  private hostStrongItemHistory: StrongItemId[] = []
+  private joinerStrongItemHistory: StrongItemId[] = []
+  /** True for the rest of this boss-room visit once it's been cleared without a hit — set in rollRoomClearReward's boss branch, reset every loadRoom(). Gates whether the devil hole is even checked in checkRoomTransition. */
+  private devilRoomAvailable = false
+  private inDevilRoom = false
+  /** The boss room's coord — where exitDevilRoom() sends you back to. */
+  private devilRoomReturnCoord: RoomCoord | null = null
+  private devilPedestals: Map<DevilItemId, DevilPedestal> = new Map()
+  private devilPedestalColliders: Map<DevilItemId, Phaser.Physics.Arcade.Collider[]> = new Map()
 
   // Slime's periodic drop (DESIGN.md's enemy-variety pass) — room-scoped
   // like enemies/projectiles/pickups, not persistent like Buddy/Shield, so
@@ -507,6 +592,25 @@ export default class GameSimulation implements RoomUiState {
     return hasNeighbor(this.floorRooms, this.roomCoord, direction)
   }
 
+  currentRoomPlaceholderLabel(): string | null {
+    const room = getRoomDefinition(this.floorRooms, this.roomCoord)
+    if (room?.noEnemyVariant === 'empty') {
+      return 'FREE ROOM'
+    }
+    if (room?.isGamble) {
+      return 'GAMBLE ROOM'
+    }
+    return null
+  }
+
+  get isInDevilRoom(): boolean {
+    return this.inDevilRoom
+  }
+
+  get isDevilHoleAvailable(): boolean {
+    return this.devilRoomAvailable
+  }
+
   // ---- Per-frame tick ----
 
   /** Drives the host player from local input; the joiner (if any) was already driven by the last applyJoinerInput call. */
@@ -596,8 +700,15 @@ export default class GameSimulation implements RoomUiState {
     this.updateShields(this.hostPlayer, this.hostShields, now)
     if (this.joinerPlayer) this.updateShields(this.joinerPlayer, this.joinerShields, now)
 
-    this.trackRoomCleared()
-    this.checkRoomTransition()
+    // Devil's Room isn't a grid room — trackRoomCleared/checkRoomTransition
+    // assume one (they'd misread this.roomCoord, which still points at the
+    // boss room being detoured from) and don't apply here at all.
+    if (this.inDevilRoom) {
+      this.checkDevilRoomExit()
+    } else {
+      this.trackRoomCleared()
+      this.checkRoomTransition()
+    }
   }
 
   // ---- Buddy / Orbiting Shield ----
@@ -655,7 +766,7 @@ export default class GameSimulation implements RoomUiState {
       return
     }
     shield.recordHit(enemyId, now)
-    const died = enemy.applyHit(owner.getStats().potatoDamage)
+    const died = enemy.applyHit(owner.getEffectiveDamage())
     if (died) {
       this.resolveEnemyDeath(enemyId, enemy)
     }
@@ -713,6 +824,15 @@ export default class GameSimulation implements RoomUiState {
       this.spawnShield(player)
     }
 
+    // Devil's Room's Shared Consumption replays whichever strong items the
+    // *other* player collected onto whoever picks it — needs each player's
+    // own history, not just their current derived stats (heavyShot in
+    // particular has no separate "count" a snapshot could copy).
+    if (itemId in STRONG_ITEMS) {
+      const history = player === this.hostPlayer ? this.hostStrongItemHistory : this.joinerStrongItemHistory
+      history.push(itemId as StrongItemId)
+    }
+
     if (itemId !== 'heart' && itemId !== 'coin' && itemId !== 'key' && STAT_ITEMS[itemId].unique) {
       this.grantedUniqueItems.add(itemId)
     }
@@ -763,6 +883,12 @@ export default class GameSimulation implements RoomUiState {
       coins: this.coinCount,
       keys: this.keyCount,
       chests: this.chest ? [{ id: this.chest.id, pos: { x: this.chest.x, y: this.chest.y } }] : [],
+      isInDevilRoom: this.inDevilRoom,
+      devilPedestals: Array.from(this.devilPedestals.values()).map((pedestal) => ({
+        id: pedestal.id,
+        pos: { x: pedestal.x, y: pedestal.y },
+      })),
+      isDevilHoleAvailable: this.devilRoomAvailable,
     }
   }
 
@@ -790,6 +916,14 @@ export default class GameSimulation implements RoomUiState {
     this.chest = null
     this.chestColliders.forEach(destroyCollider)
     this.chestColliders = []
+    this.shrine?.destroy()
+    this.shrine = null
+    this.shrineColliders.forEach(destroyCollider)
+    this.shrineColliders = []
+    this.devilPedestals.forEach((pedestal) => pedestal.destroy())
+    this.devilPedestals.clear()
+    this.devilPedestalColliders.forEach((colliders) => colliders.forEach(destroyCollider))
+    this.devilPedestalColliders.clear()
     this.roomEnemyColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.roomEnemyColliders.clear()
     this.roomEnemies.forEach((enemy) => enemy.destroy())
@@ -888,6 +1022,17 @@ export default class GameSimulation implements RoomUiState {
     for (const buddy of buddies) {
       this.spawnBuddyProjectile(buddy.x, buddy.y, facing)
     }
+
+    // Turret Pact (Devil's Room, DESIGN.md §9) — every Orbiting Shield this
+    // player owns also fires like a Buddy whenever they do. Shares the
+    // exact same fixed-damage shot as Buddy, deliberately for the same
+    // reason Buddy itself doesn't scale with player stats.
+    if (stats.hasTurretShields) {
+      const shields = player === this.hostPlayer ? this.hostShields : this.joinerShields
+      for (const shield of shields) {
+        this.spawnBuddyProjectile(shield.x, shield.y, facing)
+      }
+    }
   }
 
   // ---- Rooms ----
@@ -939,6 +1084,13 @@ export default class GameSimulation implements RoomUiState {
         }
         if (Phaser.Math.Distance.Between(player.x, player.y, BOSS_HOLE_CENTER.x, BOSS_HOLE_CENTER.y) < BOSS_HOLE_RADIUS) {
           this.startLevel(this.level + 1)
+          return
+        }
+        if (
+          this.devilRoomAvailable &&
+          Phaser.Math.Distance.Between(player.x, player.y, DEVIL_HOLE_CENTER.x, DEVIL_HOLE_CENTER.y) < DEVIL_HOLE_RADIUS
+        ) {
+          this.enterDevilRoom()
           return
         }
       }
@@ -999,6 +1151,9 @@ export default class GameSimulation implements RoomUiState {
       isBoss: !!room.isBoss,
       isGolden: !!room.isGolden,
       obstacles: room.obstacles,
+      noEnemyVariant: room.noEnemyVariant,
+      isGamble: room.isGamble,
+      chestAnchor: room.chestAnchor,
     }))
     this.explored = [this.currentFloor.startCoord]
     this.clearedRooms = []
@@ -1027,14 +1182,17 @@ export default class GameSimulation implements RoomUiState {
   }
 
   /**
-   * Tears down the current room's enemies/projectiles and builds the next
-   * one. `enteredFrom` is the edge of the *new* room being entered through
-   * — omitted for the very first room, since freshly-constructed Players
-   * are already at their normal spawn points.
+   * Tears down every room-scoped thing the current room might have —
+   * enemies, obstacles, projectiles, hazard zones, Chest, Gamble Shrine —
+   * and snapshots any uncollected item pickups so a later return visit
+   * (including a Devil's Room detour and back) still has them. Shared by
+   * loadRoom (a real grid-room transition) and enterDevilRoom (a detour
+   * out of the boss room, which isn't a grid room at all).
    */
-  private loadRoom(coord: RoomCoord, enteredFrom?: Direction) {
+  private teardownCurrentRoom() {
     this.tookDamageThisRoom = false
     this.lastEnemyDeathPos = null
+    this.devilRoomAvailable = false
 
     this.roomEnemyColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.roomEnemyColliders.clear()
@@ -1091,6 +1249,23 @@ export default class GameSimulation implements RoomUiState {
     this.chestColliders.forEach(destroyCollider)
     this.chestColliders = []
 
+    // The Gamble Shrine is room-scoped like Chest, but unlike Chest it
+    // never self-destructs on use — only ever torn down here, on room exit.
+    this.shrine?.destroy()
+    this.shrine = null
+    this.shrineColliders.forEach(destroyCollider)
+    this.shrineColliders = []
+  }
+
+  /**
+   * Tears down the current room's enemies/projectiles and builds the next
+   * one. `enteredFrom` is the edge of the *new* room being entered through
+   * — omitted for the very first room, since freshly-constructed Players
+   * are already at their normal spawn points.
+   */
+  private loadRoom(coord: RoomCoord, enteredFrom?: Direction) {
+    this.teardownCurrentRoom()
+
     if (enteredFrom) {
       const [posA, posB] = getEntryPositions(enteredFrom)
       this.hostPlayer.teleport(posA.x, posA.y)
@@ -1111,6 +1286,10 @@ export default class GameSimulation implements RoomUiState {
       this.spawnChest(room.chestAnchor.x, room.chestAnchor.y)
     }
 
+    if (room?.isGamble) {
+      this.spawnGambleShrine(room.chestAnchor.x, room.chestAnchor.y)
+    }
+
     const alreadyCleared = this.clearedRooms.some((cleared) => coordsEqual(cleared, coord))
     if (room && !alreadyCleared) {
       this.spawnRoomEnemies(room, enteredFrom)
@@ -1124,6 +1303,123 @@ export default class GameSimulation implements RoomUiState {
     if (restored) {
       this.persistedItemPickups.delete(this.coordKey(coord))
       restored.forEach(({ itemId, x, y }) => this.spawnItemPickup(itemId, x, y))
+    }
+  }
+
+  // ---- Devil's Room (DESIGN.md §9) ----
+  // Not a grid room — reuses the boss room's own canvas as a detour, see
+  // DEVIL_HOLE_CENTER/checkRoomTransition's boss branch for how you get here.
+
+  private enterDevilRoom() {
+    this.teardownCurrentRoom()
+    this.devilRoomReturnCoord = this.roomCoord
+    this.inDevilRoom = true
+
+    this.hostPlayer.teleport(DEVIL_ROOM_HOST_SPAWN.x, DEVIL_ROOM_HOST_SPAWN.y)
+    this.joinerPlayer?.teleport(DEVIL_ROOM_JOINER_SPAWN.x, DEVIL_ROOM_JOINER_SPAWN.y)
+    this.hostBuddies.forEach((buddy) => buddy.teleport(DEVIL_ROOM_HOST_SPAWN.x, DEVIL_ROOM_HOST_SPAWN.y))
+    this.joinerBuddies.forEach((buddy) => buddy.teleport(DEVIL_ROOM_JOINER_SPAWN.x, DEVIL_ROOM_JOINER_SPAWN.y))
+
+    this.spawnDevilPedestals()
+  }
+
+  /** 2 options in solo (sharedConsumption needs a teammate), 3 in co-op — laid out along the same centered-line formula spawnRoomEnemies already uses. */
+  private spawnDevilPedestals() {
+    const ids = availableDevilItemIds(!!this.joinerPlayer)
+    const total = ids.length
+    ids.forEach((id, index) => {
+      const x = DEVIL_ROOM_PEDESTAL_ANCHOR.x + (index - (total - 1) / 2) * DEVIL_ROOM_PEDESTAL_SPACING
+      const pedestal = new DevilPedestal(this.scene, id, x, DEVIL_ROOM_PEDESTAL_ANCHOR.y, { simulated: true })
+      this.devilPedestals.set(id, pedestal)
+
+      const colliders: Phaser.Physics.Arcade.Collider[] = []
+      const hostPlayer = this.hostPlayer
+      colliders.push(
+        this.scene.physics.add.overlap(hostPlayer.square, pedestal.shape, () => this.handleDevilPedestalTouch(id, hostPlayer)),
+      )
+      const joinerPlayer = this.joinerPlayer
+      if (joinerPlayer) {
+        colliders.push(
+          this.scene.physics.add.overlap(joinerPlayer.square, pedestal.shape, () => this.handleDevilPedestalTouch(id, joinerPlayer)),
+        )
+      }
+      this.devilPedestalColliders.set(id, colliders)
+    })
+  }
+
+  /** Whoever pays a Blood Pact/Turret Pact's cost — the *other* player if one exists, else the picker themself (solo has nobody else to pay). */
+  private devilCostTarget(picker: Player): Player {
+    const teammate = picker === this.hostPlayer ? this.joinerPlayer : this.hostPlayer
+    return teammate ?? picker
+  }
+
+  /**
+   * Choosing any pedestal destroys every other one immediately (before
+   * applying any effect) — both guards against both players touching
+   * different pedestals in the same physics frame, and is the actual
+   * "the others are gone once you choose" rule.
+   */
+  private handleDevilPedestalTouch(id: DevilItemId, player: Player) {
+    if (!this.devilPedestals.has(id)) {
+      return
+    }
+    this.devilPedestals.forEach((pedestal) => pedestal.destroy())
+    this.devilPedestals.clear()
+    this.devilPedestalColliders.forEach((colliders) => colliders.forEach(destroyCollider))
+    this.devilPedestalColliders.clear()
+
+    if (id === 'sharedConsumption') {
+      // Both players receive a copy of the *other's* strong-item history —
+      // true union, not just whoever physically touched the pedestal.
+      const hostHistory = [...this.hostStrongItemHistory]
+      const joinerHistory = [...this.joinerStrongItemHistory]
+      this.hostPlayer.applyDevilSharedConsumption(joinerHistory)
+      this.joinerPlayer?.applyDevilSharedConsumption(hostHistory)
+      this.hostPlayer.crushMaxLivesTo1()
+      this.joinerPlayer?.crushMaxLivesTo1()
+    } else if (id === 'bloodPact') {
+      player.applyDevilBloodPact()
+      this.devilCostTarget(player).decreaseMaxLives(1)
+    } else {
+      // turretPact — applyDevilTurretPact only bumps stats.shieldCount; the
+      // actual new entity (and retinting every existing one, "including
+      // the new one") still needs doing here, same as a normal Orbiting
+      // Shield pickup would via spawnShield.
+      player.applyDevilTurretPact()
+      this.spawnShield(player)
+      const shields = player === this.hostPlayer ? this.hostShields : this.joinerShields
+      shields.forEach((shield) => shield.setTurretMode(true))
+      this.devilCostTarget(player).decreaseMaxLives(1)
+    }
+
+    showPickupText(this.scene, player.x, player.y, DEVIL_ITEMS[id].label)
+  }
+
+  /** Called every update() tick while inDevilRoom, in place of trackRoomCleared/checkRoomTransition — Devil's Room has neither enemies nor doors. */
+  private checkDevilRoomExit() {
+    for (const player of [this.hostPlayer, this.joinerPlayer]) {
+      if (!player) {
+        continue
+      }
+      if (Phaser.Math.Distance.Between(player.x, player.y, DEVIL_EXIT_CENTER.x, DEVIL_EXIT_CENTER.y) < DEVIL_EXIT_RADIUS) {
+        this.exitDevilRoom()
+        return
+      }
+    }
+  }
+
+  /** Back to the boss room you detoured from — always allowed, whether or not a pedestal was chosen. */
+  private exitDevilRoom() {
+    this.inDevilRoom = false
+    this.devilPedestals.forEach((pedestal) => pedestal.destroy())
+    this.devilPedestals.clear()
+    this.devilPedestalColliders.forEach((colliders) => colliders.forEach(destroyCollider))
+    this.devilPedestalColliders.clear()
+
+    const returnCoord = this.devilRoomReturnCoord
+    this.devilRoomReturnCoord = null
+    if (returnCoord) {
+      this.loadRoom(returnCoord)
     }
   }
 
@@ -1307,6 +1603,8 @@ export default class GameSimulation implements RoomUiState {
         this.spawnItemPickup(secondId, BOSS_HOLE_CENTER.x + REGULAR_REWARD_SPACING / 2, BOSS_HOLE_CENTER.y - REGULAR_REWARD_SPACING)
       }
       this.scatterBossBonusRewards()
+      // Devil's Room (DESIGN.md §9) — this is the one moment tookDamageThisRoom is still accurate for the fight that just ended.
+      this.devilRoomAvailable = !this.tookDamageThisRoom
       return
     }
 
@@ -1321,11 +1619,36 @@ export default class GameSimulation implements RoomUiState {
       return
     }
 
+    const roomDef = getRoomDefinition(this.currentFloor.rooms, coord)
+
+    // Guaranteed no-enemy rooms (DESIGN.md §8) — 'loot' always drops 2-3
+    // key/heart/coin pickups scattered around the room; 'empty' drops
+    // nothing at all (it's a placeholder for now, see
+    // currentRoomPlaceholderLabel). Neither rolls the regular-room chances
+    // below.
+    if (roomDef?.noEnemyVariant) {
+      if (roomDef.noEnemyVariant === 'loot') {
+        const count = Phaser.Math.Between(FREE_ROOM_LOOT_MIN, FREE_ROOM_LOOT_MAX)
+        for (let i = 0; i < count; i++) {
+          const itemId = FREE_ROOM_LOOT_POOL[Math.floor(Math.random() * FREE_ROOM_LOOT_POOL.length)]
+          const pos = scatterPosition(roomDef.enemyAnchor, FREE_ROOM_SCATTER_MIN_DISTANCE, FREE_ROOM_SCATTER_MAX_DISTANCE)
+          this.spawnItemPickup(itemId, pos.x, pos.y)
+        }
+      }
+      return
+    }
+
+    // The Gamble Shrine room drop rewards through pulls (handleShrinePull),
+    // not the regular room-clear roll below.
+    if (roomDef?.isGamble) {
+      return
+    }
+
     // Regular room — reads this room's own enemyAnchor instead of the bare
     // ENEMY_SPAWN_CENTER constant, so a reward can never land inside a
     // pillar room's rocks (golden/boss above stay on the fixed constants
     // since those room types are always the obstacle-free empty layout).
-    const anchor = getRoomDefinition(this.currentFloor.rooms, coord)?.enemyAnchor ?? ENEMY_SPAWN_CENTER
+    const anchor = roomDef?.enemyAnchor ?? ENEMY_SPAWN_CENTER
 
     // Coin, life item, and key all roll unconditionally, regardless of
     // whether anyone got hit clearing this room.
@@ -1509,21 +1832,81 @@ export default class GameSimulation implements RoomUiState {
     }
   }
 
+  // ---- Gamble Shrine ----
+
+  /** DESIGN.md §8 (brainstorm) — a room fixture in a room.isGamble room, spawned here from loadRoom same as a Chest. */
+  private spawnGambleShrine(x: number, y: number) {
+    const shrine = new GambleShrine(this.scene, x, y, { simulated: true })
+    this.shrine = shrine
+
+    const colliders: Phaser.Physics.Arcade.Collider[] = []
+    const hostPlayer = this.hostPlayer
+    colliders.push(this.scene.physics.add.overlap(hostPlayer.square, shrine.shape, () => this.handleShrinePull(hostPlayer)))
+    const joinerPlayer = this.joinerPlayer
+    if (joinerPlayer) {
+      colliders.push(this.scene.physics.add.overlap(joinerPlayer.square, shrine.shape, () => this.handleShrinePull(joinerPlayer)))
+    }
+    this.shrineColliders = colliders
+  }
+
+  /**
+   * Costs GAMBLE_PULL_COST coins — no-ops (silent) if the team can't
+   * afford it. Cooldown-gated (not a one-shot guard like Chest, since the
+   * shrine never disappears) so standing on it doesn't pull every physics
+   * frame — walking off and back, or just waiting out the cooldown, both
+   * get you another pull.
+   */
+  private handleShrinePull(player: Player) {
+    const now = this.scene.time.now
+    if (!canFire(this.shrinePullState, now, GAMBLE_PULL_COOLDOWN_MS) || this.coinCount < GAMBLE_PULL_COST) {
+      return
+    }
+    this.shrinePullState = recordFire(this.shrinePullState, now)
+    this.coinCount -= GAMBLE_PULL_COST
+
+    const outcome = rollGambleOutcome()
+    if (outcome === 'bust') {
+      showPickupText(this.scene, player.x, player.y, '꽝!')
+      return
+    }
+    if (outcome === 'refund') {
+      this.coinCount += 1
+      showPickupText(this.scene, player.x, player.y, '코인 +1')
+      return
+    }
+    if (outcome === 'heart' || outcome === 'key') {
+      this.applyGrantedItem(outcome, player)
+      showPickupText(this.scene, player.x, player.y, getItemLabel(outcome))
+      return
+    }
+    if (outcome === 'boost') {
+      const id = randomBoostItemId()
+      this.applyGrantedItem(id, player)
+      showPickupText(this.scene, player.x, player.y, getItemLabel(id))
+      return
+    }
+    // jackpot
+    const id = randomStrongItemId(this.grantedUniqueItems)
+    this.applyGrantedItem(id, player)
+    showPickupText(this.scene, player.x, player.y, getItemLabel(id))
+  }
+
   // ---- Projectiles ----
 
   /** Spawns a projectile (reading the firing player's item-boosted stats) and wires overlap detection against every enemy currently in the room. */
   private spawnProjectile(player: Player, angle: number) {
     const id = this.nextProjectileId++
     const stats = player.getStats()
+    const damage = player.getEffectiveDamage()
     const projectile = new Projectile(this.scene, id, player.x, player.y, angle, {
       simulated: true,
-      damage: stats.potatoDamage,
+      damage,
       speed: PROJECTILE_SPEED * stats.potatoSpeedMultiplier,
       radius: PROJECTILE_RADIUS * stats.potatoSizeMultiplier,
       range: PROJECTILE_MAX_RANGE * stats.potatoRangeMultiplier,
       pierceCount: stats.hasPiercing,
       homingStrength: stats.hasHoming,
-      color: projectileColorForDamage(stats.potatoDamage),
+      color: projectileColorForDamage(damage),
     })
     this.projectiles.set(id, projectile)
 

@@ -22,6 +22,12 @@ export interface MiniMapRoomInfo {
   isGolden: boolean
   /** Not used by the minimap itself — carried here purely so this already-shared per-room shape gets it to the joiner too, same as isBoss/isGolden (see CoopPlayScene's obstacle rendering). */
   obstacles: RoomObstacle[]
+  /** Not used by the minimap itself — see currentRoomPlaceholderLabel (GameSimulation/CoopPlayScene). */
+  noEnemyVariant?: 'loot' | 'empty'
+  /** Not used by the minimap itself — see currentRoomPlaceholderLabel and CoopPlayScene's shrine rendering. */
+  isGamble?: boolean
+  /** Not used by the minimap itself — the Gamble Shrine's position, since (unlike Chest) it has no dynamic per-instance broadcast state; the joiner draws it purely from this plus isGamble (see CoopPlayScene's drawGambleShrine). */
+  chestAnchor: { x: number; y: number }
 }
 
 /**

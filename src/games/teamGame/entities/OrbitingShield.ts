@@ -3,6 +3,9 @@ import type { Vec2 } from '../net/syncProtocol'
 
 const SHIELD_RADIUS = 10
 const SHIELD_COLOR = 0x99ccff
+/** Turret Pact's visual tell (DESIGN.md §9) — bigger and a hot color, distinct from the default shield's cool blue, since a firing shield reads as a meaningfully different threat/tool than a plain contact-damage one. */
+const TURRET_COLOR = 0xff8800
+const TURRET_SCALE = 1.3
 /** Minimum time between damage ticks against the same enemy, so continuous Arcade overlap doesn't melt a target in one frame. */
 export const SHIELD_HIT_COOLDOWN_MS = 500
 
@@ -61,6 +64,12 @@ export default class OrbitingShield {
     } else {
       this.shape.setPosition(x, y)
     }
+  }
+
+  /** Turret Pact (DESIGN.md §9) — safe to call every frame, no-ops visually once already in the requested mode. Host-only, deliberately not networked to the joiner's render-only copy (a known simplification — the joiner still sees the turret shots fired, just not the shield's own recolor). */
+  setTurretMode(enabled: boolean) {
+    this.shape.setFillStyle(enabled ? TURRET_COLOR : SHIELD_COLOR)
+    this.shape.setScale(enabled ? TURRET_SCALE : 1)
   }
 
   /** Whether enough time has passed since this shield last damaged this specific enemy. */

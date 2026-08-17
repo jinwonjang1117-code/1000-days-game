@@ -62,6 +62,17 @@ export function increaseMaxLives(state: LifeState, amount: number): LifeState {
   return { ...state, maxLives, lives: Math.min(state.lives + amount, maxLives) }
 }
 
+/** Devil's Room cost (Blood Pact / Turret Pact, DESIGN.md §9) — floors at 1, a player can never lose their last heart container this way. Clamps current lives down too if it was above the new max. */
+export function decreaseMaxLives(state: LifeState, amount: number): LifeState {
+  const maxLives = Math.max(1, state.maxLives - amount)
+  return { ...state, maxLives, lives: Math.min(state.lives, maxLives) }
+}
+
+/** Shared Consumption's cost (DESIGN.md §9) — crushes the cap straight to 1 regardless of its current value. */
+export function crushMaxLivesTo1(state: LifeState): LifeState {
+  return { ...state, maxLives: 1, lives: Math.min(state.lives, 1) }
+}
+
 /**
  * Called when a new level starts. Only touches a player who was out —
  * DESIGN.md §3 settles the previously-TBD reset rule as a fixed respawn

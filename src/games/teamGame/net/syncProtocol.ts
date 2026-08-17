@@ -7,6 +7,8 @@ import type { ArchetypeId } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import type { ItemId } from '../gameplay/items'
 import { isKnownItemId } from '../gameplay/items'
+import type { DevilItemId } from '../gameplay/devilItems'
+import { DEVIL_ITEM_IDS } from '../gameplay/devilItems'
 import type { RoomObstacle } from '../rooms/roomLayouts'
 
 export interface KeyState {
@@ -47,7 +49,15 @@ export interface LevelStartMessage {
   type: 'levelStart'
   level: number
   startCoord: RoomCoord
-  rooms: { coord: RoomCoord; isBoss: boolean; isGolden: boolean; obstacles: RoomObstacle[] }[]
+  rooms: {
+    coord: RoomCoord
+    isBoss: boolean
+    isGolden: boolean
+    obstacles: RoomObstacle[]
+    noEnemyVariant?: 'loot' | 'empty'
+    isGamble?: boolean
+    chestAnchor: Vec2
+  }[]
 }
 
 export interface Vec2 {
@@ -95,6 +105,12 @@ export interface HazardZoneState {
 /** A locked treasure chest (DESIGN.md §9) — stationary like a hazard zone, just an id/position until it drops out of the broadcast (opened). */
 export interface ChestState {
   id: number
+  pos: Vec2
+}
+
+/** One of Devil's Room's 2-3 remaining choices (DESIGN.md §9) — id doubles as the DevilItemId itself (only one of each can ever exist at once), gone from the broadcast once any pedestal is chosen. */
+export interface DevilPedestalState {
+  id: DevilItemId
   pos: Vec2
 }
 
@@ -164,6 +180,12 @@ export interface StateMessage {
   keys: number
   /** At most one per room — a locked Chest currently sitting in the room, or empty if this room has none / it's already been opened. */
   chests: ChestState[]
+  /** Devil's Room (DESIGN.md §9) isn't a normal grid room — this is the only way the joiner knows to suppress normal doors/the boss hole and render the devil exit hole instead (see CoopPlayScene). */
+  isInDevilRoom: boolean
+  /** Empty outside Devil's Room. Whichever of the 2-3 choices haven't been picked yet — empty once any one has been. */
+  devilPedestals: DevilPedestalState[]
+  /** True for the rest of a no-hit boss-room visit — the joiner can't derive this itself (it doesn't track hits-taken-this-room), so it has to be broadcast. Drives whether the devil hole graphic shows up alongside the normal boss hole. */
+  isDevilHoleAvailable: boolean
 }
 
 function isKeyState(value: unknown): value is KeyState {
@@ -246,6 +268,14 @@ function isChestState(value: unknown): value is ChestState {
   return typeof v.id === 'number' && isVec2(v.pos)
 }
 
+function isDevilPedestalState(value: unknown): value is DevilPedestalState {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const v = value as Record<string, unknown>
+  return typeof v.id === 'string' && (DEVIL_ITEM_IDS as string[]).includes(v.id) && isVec2(v.pos)
+}
+
 function isEnemyState(value: unknown): value is EnemyState {
   if (typeof value !== 'object' || value === null) {
     return false
@@ -296,7 +326,7 @@ function isRoomObstacle(value: unknown): value is RoomObstacle {
   )
 }
 
-function isRoomEntry(value: unknown): value is { coord: RoomCoord; isBoss: boolean; isGolden: boolean; obstacles: RoomObstacle[] } {
+function isRoomEntry(value: unknown): value is LevelStartMessage['rooms'][number] {
   if (typeof value !== 'object' || value === null) {
     return false
   }
@@ -306,7 +336,10 @@ function isRoomEntry(value: unknown): value is { coord: RoomCoord; isBoss: boole
     typeof v.isBoss === 'boolean' &&
     typeof v.isGolden === 'boolean' &&
     Array.isArray(v.obstacles) &&
-    v.obstacles.every(isRoomObstacle)
+    v.obstacles.every(isRoomObstacle) &&
+    (v.noEnemyVariant === undefined || v.noEnemyVariant === 'loot' || v.noEnemyVariant === 'empty') &&
+    (v.isGamble === undefined || typeof v.isGamble === 'boolean') &&
+    isVec2(v.chestAnchor)
   )
 }
 
@@ -355,6 +388,10 @@ export function isStateMessage(data: unknown): data is StateMessage {
     typeof v.coins === 'number' &&
     typeof v.keys === 'number' &&
     Array.isArray(v.chests) &&
-    v.chests.every(isChestState)
+    v.chests.every(isChestState) &&
+    typeof v.isInDevilRoom === 'boolean' &&
+    Array.isArray(v.devilPedestals) &&
+    v.devilPedestals.every(isDevilPedestalState) &&
+    typeof v.isDevilHoleAvailable === 'boolean'
   )
 }

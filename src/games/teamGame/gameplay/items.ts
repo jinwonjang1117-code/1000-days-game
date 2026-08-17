@@ -49,6 +49,10 @@ export interface PlayerStats {
   buddyCount: number
   /** Number of Orbiting Shields circling this player — GameSimulation keeps the live entity count in sync with this. */
   shieldCount: number
+  /** Blood Pact (Devil's Room, DESIGN.md §9) — multiplies potatoDamage/getEffectiveDamage on top of the regular additive damage stat. Devil-item-specific, but lives here like everything else derived stat-wise. */
+  devilDamageMultiplier: number
+  /** Turret Pact (Devil's Room, DESIGN.md §9) — every Orbiting Shield this player owns (existing and future) also fires like a Buddy whenever they do, and renders in "turret" mode (OrbitingShield.setTurretMode). */
+  hasTurretShields: boolean
 }
 
 export function createDefaultStats(): PlayerStats {
@@ -66,6 +70,8 @@ export function createDefaultStats(): PlayerStats {
     shieldCount: 0,
     hasHoming: 0,
     hasMultiDirection: 0,
+    devilDamageMultiplier: 1,
+    hasTurretShields: false,
   }
 }
 
@@ -247,6 +253,11 @@ function weightedRandomFromRecord<T extends string>(record: Record<T, { weight?:
 
 export function randomBoostItemId(): BoostItemId {
   return weightedRandomFromRecord(BOOST_ITEMS)
+}
+
+/** Strong items only, unlike randomRewardItemIds' combined pool — used by the Gamble Shrine's jackpot (DESIGN.md §8), which is deliberately a step up from its own separate "boost item" outcome. */
+export function randomStrongItemId(excludeIds?: Set<string>): StrongItemId {
+  return weightedRandomFromRecord(STRONG_ITEMS, excludeIds)
 }
 
 /**

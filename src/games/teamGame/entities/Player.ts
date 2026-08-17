@@ -5,6 +5,8 @@ import {
   applyHit as applyHitToLifeState,
   grantLife as grantLifeToState,
   increaseMaxLives as increaseMaxLivesForState,
+  decreaseMaxLives as decreaseMaxLivesForState,
+  crushMaxLivesTo1 as crushMaxLivesTo1ForState,
   respawnForNextLevel as respawnLifeStateForNextLevel,
   isInvincible as isLifeStateInvincible,
   INVINCIBILITY_DURATION_MS,
@@ -130,6 +132,16 @@ export default class Player {
     this.lifeState = increaseMaxLivesForState(this.lifeState, amount)
   }
 
+  /** Devil's Room cost (Blood Pact / Turret Pact) — floors at 1, see gameplay/lives.ts. */
+  decreaseMaxLives(amount: number) {
+    this.lifeState = decreaseMaxLivesForState(this.lifeState, amount)
+  }
+
+  /** Shared Consumption's cost — crushes the cap straight to 1. */
+  crushMaxLivesTo1() {
+    this.lifeState = crushMaxLivesTo1ForState(this.lifeState)
+  }
+
   /** Called when a new level starts (DESIGN.md §3) — no-ops unless this player was out, in which case it comes back with a fixed 3 lives, not its previous count. */
   respawnForNextLevel() {
     this.lifeState = respawnLifeStateForNextLevel(this.lifeState)
@@ -142,6 +154,28 @@ export default class Player {
 
   getStats(): PlayerStats {
     return this.stats
+  }
+
+  /** potatoDamage with Blood Pact's multiplier folded in (1 outside Devil's Room) — use this instead of reading stats.potatoDamage directly anywhere outgoing damage is computed (Buddy stays a deliberate exception, per its own note in GameSimulation). */
+  getEffectiveDamage(): number {
+    return Math.round(this.stats.potatoDamage * this.stats.devilDamageMultiplier)
+  }
+
+  /** Devil's Room — Blood Pact's benefit half (the cost half is decreaseMaxLives, applied to whichever player is paying). */
+  applyDevilBloodPact() {
+    this.stats = { ...this.stats, devilDamageMultiplier: this.stats.devilDamageMultiplier + 0.5 }
+  }
+
+  /** Devil's Room — Turret Pact's benefit half: one more Orbiting Shield, and every shield this player owns (GameSimulation reconciles the live entity list same as a normal Orbiting Shield pickup) now also fires and renders in turret mode. */
+  applyDevilTurretPact() {
+    this.stats = { ...this.stats, shieldCount: this.stats.shieldCount + 1, hasTurretShields: true }
+  }
+
+  /** Devil's Room — Shared Consumption's benefit half: replays `ids` (the teammate's own strong-item pickup history) onto this player's stats, same effect as if they'd picked each one up themselves. Order-sensitive for stacking items, so callers must pass the teammate's history in the order they actually collected it. */
+  applyDevilSharedConsumption(ids: StrongItemId[]) {
+    for (const id of ids) {
+      this.applyItem(id)
+    }
   }
 
   /** Instantly moves and zeroes velocity — for room transitions, not normal movement. */
