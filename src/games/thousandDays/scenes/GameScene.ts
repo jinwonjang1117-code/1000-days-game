@@ -22,7 +22,7 @@ import { getDifficulty, getDifficultySettings } from '../config/difficulty'
 import { getSelectedCharacter } from '../config/characters'
 
 const DAMAGE_INVINCIBILITY_MS = 1000
-const STAGE_SPAWN_GRACE_MS = 500
+const STAGE_SPAWN_GRACE_MS = 1000
 const PATROL_EDGE_INSET = 40
 const CAPTURE_CHASE_SPEED = 700
 const STAGE_TRANSITION_DELAY_MS = 1500
