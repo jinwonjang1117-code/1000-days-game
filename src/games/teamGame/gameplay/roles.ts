@@ -48,21 +48,19 @@ export const ROLES: Record<RoleId, RoleDefinition> = {
     label: '레이저 (공격이 지속 광선으로 변함)',
     color: 0xff66ff,
   },
-  // Not buildable yet — same reason as Laser (charge-and-throw needs a
-  // richer input model than firing: boolean, see CLAUDE.md's known gap).
   bomb: {
     id: 'bomb',
-    label: '봄 (충전 후 투척, 광역 피해)',
+    label: '봄 (적중 시 폭발, 광역 피해, 아군도 피해 받음)',
     color: 0xff4444,
   },
 }
 
 export const ROLE_IDS = Object.keys(ROLES) as RoleId[]
 
-/** Excluded from every acquisition pool (golden/boss/Angel) until their own follow-up stage builds the attack-shape replacement they need — see DESIGN.md/CLAUDE.md's Role System roadmap entry. */
-export const NOT_YET_BUILDABLE_ROLES: ReadonlySet<RoleId> = new Set(['laser', 'bomb'])
+/** Excluded from every acquisition pool (golden/boss/Angel) until its own follow-up stage builds the attack-shape replacement it needs — see DESIGN.md/CLAUDE.md's Role System roadmap entry. Bomb no longer needs this (see BOMB_BLAST_RADIUS's note) — it turned out to reuse the same Space-fire input as every other role once its design simplified away from hold-to-charge. */
+export const NOT_YET_BUILDABLE_ROLES: ReadonlySet<RoleId> = new Set(['laser'])
 
-/** The 5 status-effect roles this stage actually implements. */
+/** The 6 roles this stage actually implements (all but Laser). */
 export const BUILDABLE_ROLE_IDS = ROLE_IDS.filter((id) => !NOT_YET_BUILDABLE_ROLES.has(id))
 
 export function isRoleId(id: string): id is RoleId {
@@ -113,3 +111,15 @@ export const ELECTRIC_CHAIN_MAX_HOPS = 2
 /** Gravity: an additive per-frame velocity nudge toward the in-flight projectile, on top of whatever the enemy's own movement already set that frame — no on-hit bonus of its own (DESIGN.md: "no direct damage identity on its own by design"). */
 export const GRAVITY_PULL_RADIUS = 120
 export const GRAVITY_PULL_STRENGTH = 60
+
+/**
+ * Bomb: explodes the instant its shot touches an enemy — no charge, no
+ * fuse, same Space-fire input as every other role (design simplified away
+ * from DESIGN.md's original hold-to-charge/timed-fuse concept before this
+ * was built). The blast hits every enemy *and* every player (including the
+ * shooter — no self-exemption, "highest risk role" per DESIGN.md) within
+ * this radius — see GameSimulation.applyBombExplosion. A shot that never
+ * touches an enemy (hits a rock, or reaches max range) just fizzles like
+ * any other shot, no explosion.
+ */
+export const BOMB_BLAST_RADIUS = 100

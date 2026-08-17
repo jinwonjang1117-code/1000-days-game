@@ -51,15 +51,14 @@ A 2-player online co-op roguelike inspired by The Binding of Isaac. One player h
 
 ## 4. Attack System
 
-Three distinct attack-input shapes, branching by equipped role — **this needs to be architected as three input handlers from the start**, not retrofitted:
+Two distinct attack-input shapes, branching by equipped role (previously three — Bomb's original hold-to-charge concept was simplified away before it was built, see §5, once it turned out contact-detonation didn't need it):
 
 | Input pattern | Roles |
 |---|---|
-| Space → fire projectile toward the direction you're currently facing | Ice, Glue, Poison, Electric, Gravity |
+| Space → fire projectile toward the direction you're currently facing | Ice, Glue, Poison, Electric, Gravity, Bomb |
 | **Hold** Space → continuous beam in the direction you're facing for as long as it's held, hits all enemies in the line each tick | Laser |
-| Hold Space to charge → release to fire; charge duration determines travel speed | Bomb |
 
-Every character has this same baseline "default attack" (tears-style) before any role is equipped — role changes *what the attack does and how it's fired*, not whether an attack exists.
+Every character has this same baseline "default attack" (tears-style) before any role is equipped — role changes *what the attack does and how it's fired*, not whether an attack exists. With Bomb folded into the shared Space-fire shape, Laser is now the *only* role needing its own input handling — and even that's just "held vs. not," representable by the existing `firing: boolean` with no richer input model needed (the earlier "known gap" about charge duration was specific to Bomb's now-retired charge mechanic, not Laser's).
 
 **Laser is a channel, not a discrete shot** (settled; previously "instant beam on tap") — holding Space keeps the beam firing continuously rather than a single line spawned per press. Beam thickness scales with the same size stat that scales projectile radius for every other attack shape — one stat means "how big is my attack," regardless of shape.
 
@@ -73,19 +72,19 @@ Fire was considered and removed. Final roster:
 
 | Role | Effect | Attack shape | Notes |
 |---|---|---|---|
-| **Ice** (built) | 25% chance to freeze an enemy for 1.5s on hit — a full stop, can't act at all | Space-fire projectile | Chance-based, swingy, big payoff |
+| **Ice** (built) | 30% chance to freeze an enemy for 1s on hit — a full stop, can't act at all | Space-fire projectile | Chance-based, swingy, big payoff |
 | **Glue** (built) | Each hit adds an independently-expiring slow stack (12%/stack, up to 5, 3s each) | Space-fire projectile | Reliable, always does *something* |
 | **Poison** (built) | Each hit adds an independently-expiring DoT stack (1 dmg/tick every 0.5s per stack, up to 5, 3s each) | Space-fire projectile | Sustained damage |
-| **Electric** (built) | 30% chance on hit to trigger a chain — on success, guaranteed to also deal the same damage to up to 2 additional nearby enemies (each within 140px of wherever the chain currently is) | Space-fire projectile | Only role that can early-detonate a Bomb |
+| **Electric** (built) | 30% chance on hit to trigger a chain — on success, guaranteed to also deal the same damage to up to 2 additional nearby enemies (each within 140px of wherever the chain currently is) | Space-fire projectile | Its "early-detonate a Bomb" identity (below) needs rethinking now that Bomb has no fuse to detonate — flagged for §6 |
 | **Gravity** (built) | Pulls enemies within 120px toward the projectile every frame it's in flight | Space-fire projectile | No direct damage identity on its own (by design — team-support role); its signature holdable adds one |
-| **Laser** (not yet built — Stage 7 follow-up) | Attack becomes an instant beam spanning the room, hits all enemies in the line | Space → instant beam | Changes attack *shape*, not just hit effect — needs its own input-model stage, see CLAUDE.md roadmap |
-| **Bomb** (not yet built — Stage 7 follow-up) | Powerful AoE on detonation; costs the player/teammate a **full life** if caught in the blast | Hold-charge → thrown, slides and decelerates, explodes after a timed fuse | Highest risk role. Only Electric can detonate it early. Player can move while charging. |
+| **Bomb** (built) | Explodes on contact with an enemy — no charge, no fuse. 100px-radius blast damages every enemy in range *and* every player in range, including the shooter themself (no self-exemption) | Space-fire projectile | Highest risk role — a bad-angle shot can cost you your own life. Self-immunity (a future holdable, §7) is the intended long-term mitigation, not a day-one one |
+| **Laser** (not yet built — Stage 7 follow-up) | Attack becomes an instant beam spanning the room, hits all enemies in the line | Space → instant beam | The only role left needing its own input handling — see §4 |
 
-All 5 built roles are pure on-hit/in-flight decorations on the same default projectile every player already fires — no new attack-shape branching needed for them, unlike Laser/Bomb. Tuning values above are first-pass, tune freely once there's been actual playtesting, same as every other archetype/item table in this project. Values live in `gameplay/roles.ts`.
+All 6 built roles are pure on-hit/in-flight decorations on the same default projectile every player already fires — no new attack-shape branching needed for any of them, including Bomb (its original hold-to-charge concept was simplified away before it was built — see §4). Laser remains the one role that changes the attack *shape* itself. Tuning values above are first-pass, tune freely once there's been actual playtesting, same as every other archetype/item table in this project. Values live in `gameplay/roles.ts`.
 
 ### Role acquisition (built)
 
-Roles are **found, not chosen up front.** A role is a single-equip item, mechanically its own category from stackable strong items (§7) even though both are discovered the same way — golden room, boss-room, and Angel Room (§9) drops, joining the existing combined pool as a third category (same 0.5 default weight a strong item gets). Picking up a new role **replaces** whichever one you currently have (no migration/refund for anything that specialized around the old one — that loss is intentional, same spirit as the old shop-era rule). No free starting pick and no guaranteed early role — **playing the early game on nothing but the default attack is an accepted, expected part of a run**, not a bug. The old "free pick near run start, free change after level 1, further changes via shop" progression is retired along with the shop system it depended on. Laser/Bomb are excluded from every acquisition pool until their own follow-up stage builds the attack-shape replacement they need — same exclusion mechanism already used to keep Heavy Shot out of the Angel Room pool.
+Roles are **found, not chosen up front.** A role is a single-equip item, mechanically its own category from stackable strong items (§7) even though both are discovered the same way — golden room, boss-room, and Angel Room (§9) drops, joining the existing combined pool as a third category (same 0.5 default weight a strong item gets). Picking up a new role **replaces** whichever one you currently have (no migration/refund for anything that specialized around the old one — that loss is intentional, same spirit as the old shop-era rule). No free starting pick and no guaranteed early role — **playing the early game on nothing but the default attack is an accepted, expected part of a run**, not a bug. The old "free pick near run start, free change after level 1, further changes via shop" progression is retired along with the shop system it depended on. Laser is excluded from every acquisition pool until its own follow-up stage builds the attack-shape replacement it needs — same exclusion mechanism already used to keep Heavy Shot out of the Angel Room pool.
 
 ---
 
@@ -102,7 +101,7 @@ Status effects exist as shared world-state — **any player's ability can trigge
 | Gravity + Laser | Gravity clusters enemies right before a Laser sweep — marquee "setup + payoff" combo |
 | Gravity + Bomb | Pulling enemies into your own Bomb blast — pulls them toward you too (risk/reward) |
 | Poison + Electric | Chain damage on a poisoned enemy has a chance to spread the poison to the chain target |
-| **Electric + Bomb** | Electric can detonate a live bomb early. **This is the only role allowed to interact with Bomb's fuse** — deliberately exclusive, not a general rule |
+| **Electric + Bomb** | ⚠️ Stale — was "Electric can detonate a live bomb early," but Bomb no longer has a fuse to detonate (it explodes on contact, §5). Needs a new idea once combos are actually scoped (Stage 8), or retiring outright |
 
 Not every one of the 21 possible role pairs needs a bespoke effect — a handful of marquee combos plus "naturally synergistic" for the rest is healthier scope than hand-designing all 21.
 

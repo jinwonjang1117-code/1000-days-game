@@ -75,6 +75,14 @@ export interface ProjectileState {
   radius?: number
   /** Only present for player shots whose color is damage-tinted (see entities/Projectile.ts's projectileColorForDamage) — enemy shots and Buddy's fixed shot always use their own fixed defaults, so this is omitted for those. */
   color?: number
+  /**
+   * Bomb (DESIGN.md §5) — always sent, not inferred, same as EnemyState's
+   * telegraphing/countsForClear. The joiner needs this to know a vanished
+   * projectile detonated (and should show the blast VFX at its last known
+   * position) rather than just having expired/hit a wall — see
+   * CoopPlayScene's reconcileProjectiles. Always false for enemyProjectiles.
+   */
+  isBomb: boolean
 }
 
 /** One active room-clear reward pickup, sitting still on the ground until someone walks over it. */
@@ -253,7 +261,8 @@ function isProjectileState(value: unknown): value is ProjectileState {
     typeof v.id === 'number' &&
     isVec2(v.pos) &&
     (v.radius === undefined || typeof v.radius === 'number') &&
-    (v.color === undefined || typeof v.color === 'number')
+    (v.color === undefined || typeof v.color === 'number') &&
+    typeof v.isBomb === 'boolean'
   )
 }
 

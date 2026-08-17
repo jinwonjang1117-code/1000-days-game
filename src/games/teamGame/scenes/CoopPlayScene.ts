@@ -566,11 +566,22 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
   }
 
   /** Joiner-only: destroys any local projectile the host no longer reports, creates/updates the rest. */
+  /**
+   * Bomb (DESIGN.md §5) has no dedicated broadcast field the way Angel
+   * Room/Devil's Room do — it's inferred the same way explodesOnDeath's
+   * explosion already is (see the enemy-reconciliation call below): a
+   * bomb-tagged projectile vanishing from the broadcast means it just
+   * detonated, so this shows the blast VFX at its last known position
+   * before actually destroying it.
+   */
   private reconcileProjectiles(received: ProjectileState[]) {
     const receivedIds = new Set(received.map((projectile) => projectile.id))
 
     for (const [id, projectile] of this.projectiles) {
       if (!receivedIds.has(id)) {
+        if (projectile.roleEffect === 'bomb') {
+          spawnExplosionEffect(this, projectile.x, projectile.y)
+        }
         projectile.destroy()
         this.projectiles.delete(id)
       }
@@ -583,6 +594,7 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
           simulated: false,
           radius: state.radius,
           color: state.color,
+          roleEffect: state.isBomb ? 'bomb' : null,
         })
         this.projectiles.set(state.id, projectile)
       }

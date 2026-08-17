@@ -34,6 +34,8 @@ import {
   ELECTRIC_CHAIN_MAX_HOPS,
   GRAVITY_PULL_RADIUS,
   GRAVITY_PULL_STRENGTH,
+  BOMB_BLAST_RADIUS,
+  getRoleColor,
 } from '../gameplay/roles'
 import { bonusContainersForLevel } from '../gameplay/lives'
 import type { AttackState } from '../gameplay/attack'
@@ -937,11 +939,13 @@ export default class GameSimulation implements RoomUiState {
         pos: { x: projectile.x, y: projectile.y },
         radius: projectile.radius,
         color: projectile.color,
+        isBomb: projectile.roleEffect === 'bomb',
       })),
       enemyProjectiles: Array.from(this.enemyProjectiles.entries()).map(([id, projectile]) => ({
         id,
         pos: { x: projectile.x, y: projectile.y },
         radius: projectile.radius,
+        isBomb: false,
       })),
       exploredRooms: this.explored,
       itemPickups: Array.from(this.itemPickups.values()).map((pickup) => ({
@@ -2084,6 +2088,7 @@ export default class GameSimulation implements RoomUiState {
     const id = this.nextProjectileId++
     const stats = player.getStats()
     const damage = player.getEffectiveDamage()
+    const roleEffect = player.getCurrentRole()
     const projectile = new Projectile(this.scene, id, player.x, player.y, angle, {
       simulated: true,
       damage,
@@ -2092,8 +2097,11 @@ export default class GameSimulation implements RoomUiState {
       range: PROJECTILE_MAX_RANGE * stats.potatoRangeMultiplier,
       pierceCount: stats.hasPiercing,
       homingStrength: stats.hasHoming,
-      color: projectileColorForDamage(damage),
-      roleEffect: player.getCurrentRole(),
+      // Bomb overrides the normal damage-tint with its own fixed color —
+      // "which color is this" is more useful as a role-identity/danger cue
+      // for an explosive shot than as a damage-scaling indicator.
+      color: roleEffect === 'bomb' ? getRoleColor('bomb') : projectileColorForDamage(damage),
+      roleEffect,
     })
     this.projectiles.set(id, projectile)
 
@@ -2128,6 +2136,7 @@ export default class GameSimulation implements RoomUiState {
       simulated: true,
       damage: BUDDY_PROJECTILE_DAMAGE,
       radius: BUDDY_PROJECTILE_RADIUS,
+      color: roleEffect === 'bomb' ? getRoleColor('bomb') : undefined,
       roleEffect,
     })
     this.projectiles.set(id, projectile)
@@ -2177,6 +2186,16 @@ export default class GameSimulation implements RoomUiState {
     }
     projectile.recordEnemyHit(enemyId)
 
+    // Bomb (DESIGN.md §5) explodes on first contact, full stop — none of
+    // the pierce/attach/single-target-hit machinery below applies, since
+    // the blast itself already sweeps every enemy (and every player) in
+    // radius, including whichever enemy it just made contact with.
+    if (projectile.roleEffect === 'bomb') {
+      this.applyBombExplosion(projectile.x, projectile.y, projectile.damage)
+      this.destroyProjectile(projectileId)
+      return
+    }
+
     // If projectile can attach (homing+pierce), attach and start periodic ticks.
     // shouldAttachOnHit() already excludes a projectile that's already
     // attached, so a shot can't reassign itself to a different enemy just
@@ -2202,10 +2221,40 @@ export default class GameSimulation implements RoomUiState {
   }
 
   /**
+   * Bomb's blast (DESIGN.md §5) — every enemy *and* every player (both
+   * hostPlayer/joinerPlayer, including the shooter themselves — no
+   * self-exemption, "highest risk role") within BOMB_BLAST_RADIUS of
+   * (x, y). Enemy damage reuses applyHit/resolveEnemyDeath; player damage
+   * reuses handleHit (i-frame gated) — the exact same shape as Strong
+   * Swarmer's death explosion (resolveEnemyDeath's explodesOnDeath
+   * branch), just triggered by projectile contact instead of a death.
+   */
+  private applyBombExplosion(x: number, y: number, damage: number) {
+    this.roomEnemies.forEach((enemy, enemyId) => {
+      if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) <= BOMB_BLAST_RADIUS) {
+        const died = enemy.applyHit(damage)
+        if (died) {
+          this.resolveEnemyDeath(enemyId, enemy)
+        }
+      }
+    })
+    for (const player of [this.hostPlayer, this.joinerPlayer]) {
+      if (player && !player.isOut && Phaser.Math.Distance.Between(x, y, player.x, player.y) <= BOMB_BLAST_RADIUS) {
+        this.handleHit(player)
+      }
+    }
+    spawnExplosionEffect(this.scene, x, y)
+  }
+
+  /**
    * The 5 status-effect roles' on-hit identity (DESIGN.md §5). Gravity has
    * no branch here — its pull is a per-frame in-flight effect (see
-   * update()'s projectile loop), not an on-hit proc. Laser/Bomb aren't
-   * buildable yet so their ids never reach here either.
+   * update()'s projectile loop), not an on-hit proc. Bomb never reaches
+   * here either — handleProjectileHitEnemy branches to applyBombExplosion
+   * before this point, since a lethal-hit-only gate (see the `!died` check
+   * at this function's one call site) doesn't make sense for an AoE that
+   * needs to resolve regardless of what its contact target's fate was.
+   * Laser isn't buildable yet so its id never reaches here either.
    */
   private applyRoleOnHitEffect(roleEffect: RoleId | null, enemy: Enemy, enemyId: number, damage: number, now: number) {
     if (roleEffect === 'ice') {
