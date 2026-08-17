@@ -56,6 +56,15 @@ export interface RoomDefinition {
    * GAMBLE_ROOM_CHANCE.
    */
   isGamble?: boolean
+  /**
+   * Marks the (optional) Angel Room (DESIGN.md §9) — a *different* extra
+   * dead-end spur from Gamble Shrine's (both can independently roll or not
+   * roll each level), also not counted in the floor's normal room-count
+   * range — see rooms/floorGenerator.ts's ANGEL_ROOM_CHANCE. Unlike Gamble
+   * Shrine, has no special GameplayHud rendering — it's a normal-looking
+   * room holding 3 real (visually identified) item pickups.
+   */
+  isAngel?: boolean
 }
 
 export function coordsEqual(a: RoomCoord, b: RoomCoord): boolean {

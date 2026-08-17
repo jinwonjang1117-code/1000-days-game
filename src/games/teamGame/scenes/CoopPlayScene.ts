@@ -109,6 +109,8 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
   private projectiles: Map<number, Projectile> = new Map()
   private enemyProjectiles: Map<number, Projectile> = new Map()
   private itemPickups: Map<number, ItemPickup> = new Map()
+  /** Angel Room's pending options — a separate map/channel from itemPickups on purpose, see reconcileAngelPickups. */
+  private angelPickups: Map<number, ItemPickup> = new Map()
   private buddies: Map<number, Buddy> = new Map()
   private shields: Map<number, OrbitingShield> = new Map()
   private hazardZones: Map<number, HazardZone> = new Map()
@@ -155,6 +157,8 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     this.enemyProjectiles.clear()
     this.itemPickups.forEach((pickup) => pickup.destroy())
     this.itemPickups.clear()
+    this.angelPickups.forEach((pickup) => pickup.destroy())
+    this.angelPickups.clear()
     this.buddies.forEach((buddy) => buddy.destroy())
     this.buddies.clear()
     this.shields.forEach((shield) => shield.destroy())
@@ -500,6 +504,7 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
       this.reconcileProjectiles(data.projectiles)
       this.reconcileEnemyProjectiles(data.enemyProjectiles)
       this.reconcileItemPickups(data.itemPickups)
+      this.reconcileAngelPickups(data.angelPickups)
       this.reconcileBuddies(data.buddies)
       this.reconcileShields(data.shields)
       this.reconcileHazardZones(data.hazardZones)
@@ -627,6 +632,33 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     for (const state of received) {
       if (!this.itemPickups.has(state.id)) {
         this.itemPickups.set(
+          state.id,
+          new ItemPickup(this, state.id, state.itemId, state.pos.x, state.pos.y, { simulated: false }),
+        )
+      }
+    }
+  }
+
+  /**
+   * Joiner-only: same create/destroy-on-presence shape as
+   * reconcileItemPickups, but deliberately no reveal-text-on-disappear —
+   * choosing one Angel Room option destroys all 2-3 at once, and that
+   * inference (any single id vanishing means "picked up") would fire once
+   * per option instead of once per actual choice if this reused that logic.
+   */
+  private reconcileAngelPickups(received: ItemPickupState[]) {
+    const receivedIds = new Set(received.map((pickup) => pickup.id))
+
+    for (const [id, pickup] of this.angelPickups) {
+      if (!receivedIds.has(id)) {
+        pickup.destroy()
+        this.angelPickups.delete(id)
+      }
+    }
+
+    for (const state of received) {
+      if (!this.angelPickups.has(state.id)) {
+        this.angelPickups.set(
           state.id,
           new ItemPickup(this, state.id, state.itemId, state.pos.x, state.pos.y, { simulated: false }),
         )

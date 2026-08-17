@@ -145,6 +145,8 @@ const CHEST_ROOM_CHANCE = 0.2
 const NO_ENEMY_LOOT_CHANCE = 0.5
 /** Chance a level additionally gets a Gamble Shrine room (DESIGN.md §8) — an *extra* dead-end spur like boss/golden, not counted in roomCountForLevel. */
 const GAMBLE_ROOM_CHANCE = 0.1
+/** Chance a level additionally gets an Angel Room (DESIGN.md §9) — independent of GAMBLE_ROOM_CHANCE, its own extra dead-end spur, not counted in roomCountForLevel. */
+const ANGEL_ROOM_CHANCE = 0.04
 
 /** At least one guaranteed no-fight room per floor; two from level 6 on (DESIGN.md §8) — a flat threshold, not part of the difficulty ramp. */
 function guaranteedNoEnemyRoomCount(level: number): number {
@@ -276,6 +278,12 @@ export function generateFloor(level: number): GeneratedFloor {
   const withGoldenSet = new Set([...withBossSet, coordKey(goldenCoord)])
   const gambleCoord = Math.random() < GAMBLE_ROOM_CHANCE ? findDeadEndSpot(shuffled(coreCoords), withGoldenSet) : null
 
+  // Angel Room (DESIGN.md §9) — independent roll from Gamble Shrine, same
+  // "extra optional spur" shape. Anchored off the set including gambleCoord
+  // (when it exists) so the two can't land adjacent to each other either.
+  const withGambleSet = gambleCoord ? new Set([...withGoldenSet, coordKey(gambleCoord)]) : withGoldenSet
+  const angelCoord = Math.random() < ANGEL_ROOM_CHANCE ? findDeadEndSpot(shuffled(coreCoords), withGambleSet) : null
+
   // Guaranteed no-enemy rooms (DESIGN.md §8) — picked from the core layout
   // (never the start room, never a spur), so converting one to no-fight
   // content doesn't touch the floor's connectivity at all, just its
@@ -286,7 +294,13 @@ export function generateFloor(level: number): GeneratedFloor {
     noEnemyCoords.map((coord) => [coordKey(coord), Math.random() < NO_ENEMY_LOOT_CHANCE ? 'loot' : 'empty'] as const),
   )
 
-  const coords = [...coreCoords, bossCoord, goldenCoord, ...(gambleCoord ? [gambleCoord] : [])]
+  const coords = [
+    ...coreCoords,
+    bossCoord,
+    goldenCoord,
+    ...(gambleCoord ? [gambleCoord] : []),
+    ...(angelCoord ? [angelCoord] : []),
+  ]
 
   const rooms: RoomDefinition[] = coords.map((coord) => {
     if (coordsEqual(coord, START_COORD)) {
@@ -300,6 +314,9 @@ export function generateFloor(level: number): GeneratedFloor {
     }
     if (gambleCoord && coordsEqual(coord, gambleCoord)) {
       return { coord, enemies: [], isGamble: true, ...EMPTY_LAYOUT }
+    }
+    if (angelCoord && coordsEqual(coord, angelCoord)) {
+      return { coord, enemies: [], isAngel: true, ...EMPTY_LAYOUT }
     }
     const noEnemyVariant = noEnemyVariants.get(coordKey(coord))
     if (noEnemyVariant) {

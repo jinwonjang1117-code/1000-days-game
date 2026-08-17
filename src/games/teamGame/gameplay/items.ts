@@ -260,6 +260,16 @@ export function randomStrongItemId(excludeIds?: Set<string>): StrongItemId {
   return weightedRandomFromRecord(STRONG_ITEMS, excludeIds)
 }
 
+/** Angel Room's curated pool (DESIGN.md §9) — excluded from the strong pool entirely: Heavy Shot's built-in tradeoff (speed down) sits oddly as a "clean, no-downside" pick even though Angel Room itself charges no separate cost. */
+const ANGEL_EXCLUDED_ITEMS: ReadonlySet<StrongItemId> = new Set(['heavyShot'])
+
+/** Distinct picks from the strong pool minus ANGEL_EXCLUDED_ITEMS, same weighted-distinct mechanism golden/boss rooms already use for their own combined pool. */
+export function randomAngelItemIds(count: number, excludeIds?: Set<string>): StrongItemId[] {
+  const merged = new Set<string>(excludeIds)
+  ANGEL_EXCLUDED_ITEMS.forEach((id) => merged.add(id))
+  return distinctWeightedIds(STRONG_ITEMS, count, merged)
+}
+
 /**
  * Draws `count` *distinct* ids from `record` (no duplicates within one
  * draw) — golden/boss rooms use this so a co-op pair never has to compete

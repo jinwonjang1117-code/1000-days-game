@@ -166,6 +166,16 @@ export interface StateMessage {
   exploredRooms: RoomCoord[]
   /** Room-clear reward pickups currently on the ground in this room. */
   itemPickups: ItemPickupState[]
+  /**
+   * Angel Room's 2-3 pending options (DESIGN.md §9) — a separate field
+   * from itemPickups on purpose: choosing one destroys all of them at
+   * once, and the joiner's reconcileItemPickups infers "picked up" (and
+   * shows reveal text) from any single id disappearing, which would fire
+   * once per option instead of once per actual choice if these shared
+   * that channel. Same ItemPickupState shape, since these are just real
+   * StrongItemIds — no new type needed.
+   */
+  angelPickups: ItemPickupState[]
   /** Every Buddy familiar in play, both players' combined (host's and joiner's aren't distinguished — see FollowerState). */
   buddies: FollowerState[]
   /** Every Orbiting Shield in play, both players' combined. */
@@ -377,6 +387,8 @@ export function isStateMessage(data: unknown): data is StateMessage {
     v.exploredRooms.every(isRoomCoord) &&
     Array.isArray(v.itemPickups) &&
     v.itemPickups.every(isItemPickupState) &&
+    Array.isArray(v.angelPickups) &&
+    v.angelPickups.every(isItemPickupState) &&
     Array.isArray(v.buddies) &&
     v.buddies.every(isFollowerState) &&
     Array.isArray(v.shields) &&

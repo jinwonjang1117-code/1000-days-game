@@ -13,7 +13,15 @@ import GambleShrine from '../entities/GambleShrine'
 import type { EnemyArchetype } from '../gameplay/enemyArchetypes'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import type { ItemId, StrongItemId } from '../gameplay/items'
-import { getItemLabel, randomBoostItemId, randomStrongItemId, randomRewardItemIds, STAT_ITEMS, STRONG_ITEMS } from '../gameplay/items'
+import {
+  getItemLabel,
+  randomBoostItemId,
+  randomStrongItemId,
+  randomRewardItemIds,
+  randomAngelItemIds,
+  STAT_ITEMS,
+  STRONG_ITEMS,
+} from '../gameplay/items'
 import type { DevilItemId } from '../gameplay/devilItems'
 import { DEVIL_ITEMS, availableDevilItemIds } from '../gameplay/devilItems'
 import { bonusContainersForLevel } from '../gameplay/lives'
@@ -295,6 +303,9 @@ const FREE_ROOM_SCATTER_MAX_DISTANCE = 150
  */
 const GAMBLE_PULL_COST = 3
 const GAMBLE_PULL_COOLDOWN_MS = 600
+/** Angel Room (DESIGN.md §9) — 3 pedestal-style options, laid out along the same centered-line formula spawnRoomEnemies already uses. */
+const ANGEL_ROOM_OPTION_COUNT = 3
+const ANGEL_PICKUP_SPACING = 80
 /** Extra shots fired in a spread when a player has picked up Multi Shot, in addition to the center shot. */
 const MULTI_SHOT_SPREAD_RADIANS = Phaser.Math.DegToRad(15)
 
@@ -470,6 +481,18 @@ export default class GameSimulation implements RoomUiState {
   private devilRoomReturnCoord: RoomCoord | null = null
   private devilPedestals: Map<DevilItemId, DevilPedestal> = new Map()
   private devilPedestalColliders: Map<DevilItemId, Phaser.Physics.Arcade.Collider[]> = new Map()
+
+  // Angel Room (DESIGN.md §9) — a real grid room (an extra optional spur,
+  // like Gamble Shrine), unlike Devil's Room. Reuses the regular ItemPickup
+  // entity/broadcast channel directly (see spawnAngelPickups) instead of
+  // its own new entity/protocol, since Angel items already are real
+  // StrongItemIds with the exact "visually identified" look this needs.
+  /** Rolled lazily the first time the room is entered, then remembered for the rest of the level — a re-visit shows the same 3 until one is picked. Reset in startLevel(). */
+  private angelRoomItems: StrongItemId[] | null = null
+  /** True once any option has been picked — the room reads as empty forever after. Reset in startLevel(). */
+  private angelRoomResolved = false
+  private angelPickups: Map<number, ItemPickup> = new Map()
+  private angelPickupColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
 
   // Slime's periodic drop (DESIGN.md's enemy-variety pass) — room-scoped
   // like enemies/projectiles/pickups, not persistent like Buddy/Shield, so
@@ -871,6 +894,16 @@ export default class GameSimulation implements RoomUiState {
         itemId: pickup.itemId,
         pos: { x: pickup.x, y: pickup.y },
       })),
+      // Deliberately its own field, not merged into itemPickups above —
+      // choosing one option destroys all 3 simultaneously, and the
+      // joiner's reconcileItemPickups infers "picked up" (and shows reveal
+      // text) from any id disappearing, which would wrongly fire 3 times
+      // for a single choice if these shared that channel.
+      angelPickups: Array.from(this.angelPickups.values()).map((pickup) => ({
+        id: pickup.id,
+        itemId: pickup.itemId,
+        pos: { x: pickup.x, y: pickup.y },
+      })),
       buddies: [...this.hostBuddies, ...this.joinerBuddies].map((buddy) => ({
         id: buddy.id,
         pos: { x: buddy.x, y: buddy.y },
@@ -930,6 +963,10 @@ export default class GameSimulation implements RoomUiState {
     this.devilPedestals.clear()
     this.devilPedestalColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.devilPedestalColliders.clear()
+    this.angelPickups.forEach((pickup) => pickup.destroy())
+    this.angelPickups.clear()
+    this.angelPickupColliders.forEach((colliders) => colliders.forEach(destroyCollider))
+    this.angelPickupColliders.clear()
     this.roomEnemyColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.roomEnemyColliders.clear()
     this.roomEnemies.forEach((enemy) => enemy.destroy())
@@ -1163,6 +1200,8 @@ export default class GameSimulation implements RoomUiState {
     this.persistedItemPickups.clear()
     this.openedChests.clear()
     this.goldenDoorUnlocked = false
+    this.angelRoomItems = null
+    this.angelRoomResolved = false
 
     // No-ops for a player who wasn't out — safe to call every level start,
     // including the very first one.
@@ -1258,6 +1297,14 @@ export default class GameSimulation implements RoomUiState {
     this.shrine = null
     this.shrineColliders.forEach(destroyCollider)
     this.shrineColliders = []
+
+    // Angel Room pickups also don't need a persisted-pickups snapshot —
+    // angelRoomItems/angelRoomResolved already remember everything needed
+    // to respawn the same 3 (or nothing, once resolved) on a return visit.
+    this.angelPickups.forEach((pickup) => pickup.destroy())
+    this.angelPickups.clear()
+    this.angelPickupColliders.forEach((colliders) => colliders.forEach(destroyCollider))
+    this.angelPickupColliders.clear()
   }
 
   /**
@@ -1291,6 +1338,11 @@ export default class GameSimulation implements RoomUiState {
 
     if (room?.isGamble) {
       this.spawnGambleShrine(room.chestAnchor.x, room.chestAnchor.y)
+    }
+
+    if (room?.isAngel && !this.angelRoomResolved) {
+      this.angelRoomItems ??= randomAngelItemIds(ANGEL_ROOM_OPTION_COUNT, this.grantedUniqueItems)
+      this.spawnAngelPickups(this.angelRoomItems, room.enemyAnchor)
     }
 
     const alreadyCleared = this.clearedRooms.some((cleared) => coordsEqual(cleared, coord))
@@ -1647,6 +1699,12 @@ export default class GameSimulation implements RoomUiState {
       return
     }
 
+    // Angel Room rewards through its own 3 curated pedestals (loadRoom's
+    // spawnAngelPickups), not the regular room-clear roll below.
+    if (roomDef?.isAngel) {
+      return
+    }
+
     // Regular room — reads this room's own enemyAnchor instead of the bare
     // ENEMY_SPAWN_CENTER constant, so a reward can never land inside a
     // pillar room's rocks (golden/boss above stay on the fixed constants
@@ -1892,6 +1950,58 @@ export default class GameSimulation implements RoomUiState {
     const id = randomStrongItemId(this.grantedUniqueItems)
     this.applyGrantedItem(id, player)
     showPickupText(this.scene, player.x, player.y, getItemLabel(id))
+  }
+
+  // ---- Angel Room ----
+
+  /**
+   * A real grid room (DESIGN.md §9), unlike Devil's Room — reuses the
+   * regular ItemPickup entity directly (its curated items are already real
+   * StrongItemIds, rendered with their true identified color/label same as
+   * any other strong item) and shares its id space with the normal
+   * itemPickups map so both can be broadcast through the one existing
+   * itemPickups channel (see buildStateMessage) with no new network state.
+   */
+  private spawnAngelPickups(items: StrongItemId[], anchor: { x: number; y: number }) {
+    const total = items.length
+    items.forEach((itemId, index) => {
+      const x = anchor.x + (index - (total - 1) / 2) * ANGEL_PICKUP_SPACING
+      const id = this.nextItemPickupId++
+      const pickup = new ItemPickup(this.scene, id, itemId, x, anchor.y, { simulated: true })
+      this.angelPickups.set(id, pickup)
+
+      const colliders: Phaser.Physics.Arcade.Collider[] = []
+      const hostPlayer = this.hostPlayer
+      colliders.push(
+        this.scene.physics.add.overlap(hostPlayer.square, pickup.shape, () =>
+          this.handleAngelPickupTouch(id, itemId, hostPlayer),
+        ),
+      )
+      const joinerPlayer = this.joinerPlayer
+      if (joinerPlayer) {
+        colliders.push(
+          this.scene.physics.add.overlap(joinerPlayer.square, pickup.shape, () =>
+            this.handleAngelPickupTouch(id, itemId, joinerPlayer),
+          ),
+        )
+      }
+      this.angelPickupColliders.set(id, colliders)
+    })
+  }
+
+  /** Choosing any option destroys every other one immediately, same "others are gone" rule and same same-frame-double-pick guard as Devil's Room pedestals. No cost — this is Angel Room's whole point. */
+  private handleAngelPickupTouch(pickupId: number, itemId: StrongItemId, player: Player) {
+    if (!this.angelPickups.has(pickupId)) {
+      return
+    }
+    this.angelPickups.forEach((pickup) => pickup.destroy())
+    this.angelPickups.clear()
+    this.angelPickupColliders.forEach((colliders) => colliders.forEach(destroyCollider))
+    this.angelPickupColliders.clear()
+    this.angelRoomResolved = true
+
+    this.applyGrantedItem(itemId, player)
+    showPickupText(this.scene, player.x, player.y, getItemLabel(itemId))
   }
 
   // ---- Projectiles ----
