@@ -24,6 +24,8 @@ const ENRAGE_COLOR = 0xff2222
 const FROZEN_COLOR = 0x66ddff
 /** Poison's DoT (DESIGN.md §5) — matches ROLES.poison.color for visual consistency between the pickup and the effect it causes. */
 const POISONED_COLOR = 0x66cc66
+/** Glue's slow (DESIGN.md §5) — matches ROLES.glue.color. Without this, a single stack (12% slower) had no visual tell at all, unlike Ice/Poison. */
+const SLOWED_COLOR = 0x88cc44
 /** Erratic retargets to a new random direction/speed within this interval range. */
 const ERRATIC_RETARGET_MIN_MS = 300
 const ERRATIC_RETARGET_MAX_MS = 1000
@@ -146,20 +148,42 @@ export default class Enemy {
   // ---- Simulated (host) ----
 
   /**
-   * Call every frame. No-ops for 'bounce' (Arcade physics owns its motion
-   * once launched). 'erratic' and 'charge' don't need a target to move
+   * Call every frame. 'erratic' and 'charge' don't need a target to move
    * (erratic ignores players entirely; charge idles without one) — every
    * other mode still requires a valid nearestPlayerPos to chase/flee from.
    */
   updateMovement(nearestPlayerPos: Vec2 | null, now: number) {
-    if (!this.body || this.archetype.movement === 'bounce') {
+    if (!this.body) {
       return
     }
 
     // Ice's freeze (DESIGN.md §5) — a full stop, checked once here ahead of
-    // every movement mode rather than duplicated in each branch below.
+    // every movement mode, 'bounce' included (previously bounce returned
+    // before this check ever ran, making Swarmer-type enemies immune to
+    // both freeze and Glue's slow — real bug, not an intentional exception).
     if (this.isFrozen(now)) {
       this.body.setVelocity(0, 0)
+      return
+    }
+
+    if (this.archetype.movement === 'bounce') {
+      // Arcade's own bounce physics owns *direction* (it reflects velocity
+      // automatically on wall/world-bounds collisions, before this runs
+      // each frame) — this only ever rescales the current direction's
+      // *magnitude* to the current effective speed, so Glue's slow can
+      // apply without fighting that reflection.
+      const targetSpeed = this.effectiveSpeed(now)
+      const currentSpeed = Math.hypot(this.body.velocity.x, this.body.velocity.y)
+      if (currentSpeed > 0) {
+        const scale = targetSpeed / currentSpeed
+        this.body.setVelocity(this.body.velocity.x * scale, this.body.velocity.y * scale)
+      } else {
+        // Zero velocity only happens right after thawing from a freeze —
+        // bounce mode never naturally settles at 0 otherwise. Relaunch at
+        // a fresh random angle, same as the constructor's initial launch.
+        const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
+        this.body.setVelocity(Math.cos(angle) * targetSpeed, Math.sin(angle) * targetSpeed)
+      }
       return
     }
 
@@ -269,11 +293,12 @@ export default class Enemy {
    * sustained speed multiplier once health drops to/below the threshold
    * (derived live, both host and joiner already know health/maxHealth);
    * Glue's slow is a straight multiplier from the current stack count.
-   * **Known first-pass scope limit**: only 'chase'/'keepDistance' read this
-   * — Erratic's wander and Charger's dash speed don't go through
-   * effectiveSpeed today, so Glue won't slow them yet (Ice's freeze, which
-   * is checked once up front in updateMovement for every mode, still stops
-   * them fine).
+   * Read by 'chase'/'keepDistance' (recompute velocity from scratch every
+   * frame) and 'bounce' (rescales its current velocity's magnitude to
+   * this, see updateMovement). **Known first-pass scope limit**: Erratic's
+   * wander and Charger's dash speed don't go through effectiveSpeed today,
+   * so Glue won't slow them yet (Ice's freeze, which is checked once up
+   * front in updateMovement for every mode, still stops them fine).
    */
   private effectiveSpeed(now: number): number {
     const { enrage } = this.archetype
@@ -495,7 +520,9 @@ export default class Enemy {
    * shortest and most transient; then Ice's frozen tint and Poison's tint
    * (mechanically significant, continuously-refreshed states); then
    * telegraphing (Charger's dodge-tell); then a sustained enrage tint
-   * (Berserker); then the plain archetype color. Called every frame from
+   * (Berserker); then Glue's slowed tint (the subtlest effect, so lowest
+   * priority — without its own tint at all, a single stack's 12% speed
+   * drop had no visual tell whatsoever); then the plain archetype color. Called every frame from
    * both refreshVisuals (host) and applyReceivedState (joiner) rather than
    * only at sparse transition points — frozen/poisoned have no discrete
    * "just changed" event the way charge-state transitions do, so this has
@@ -513,6 +540,8 @@ export default class Enemy {
       this.square.setFillStyle(TELEGRAPH_COLOR)
     } else if (this.isEnraged()) {
       this.square.setFillStyle(ENRAGE_COLOR)
+    } else if (this.slowStacks > 0) {
+      this.square.setFillStyle(SLOWED_COLOR)
     } else {
       this.square.setFillStyle(this.archetype.color)
     }

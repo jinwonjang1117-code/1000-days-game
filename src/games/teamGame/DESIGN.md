@@ -38,7 +38,7 @@ A 2-player online co-op roguelike inspired by The Binding of Isaac. One player h
 - **Starting lives: 5.** Needs **post-hit invincibility frames** (~1-1.5s, with a visual flicker) after any hit so overlapping enemy contact doesn't delete multiple lives at once.
 - A player who runs out of lives is out for the **rest of the current level**, and respawns at the **start of the next level** with a **fixed 3 lives** — not the starting 5, and not inherited from the other player's current count. (Settled; previously TBD.)
 - If **both** players are out of lives within the same level, the run ends immediately.
-- **Life items** occasionally drop as a possible room-clear reward (rare/random chance, not scheduled like role items) — grant +1 life, capped at the player's current max (see Heart Containers below).
+- **Life items** occasionally drop as a possible room-clear reward (rare/random chance, not scheduled like role items) — grant +1 life, capped at the player's current max (see Heart Containers below). A player already at max lives can't consume one at all — it's left on the ground rather than wasted, so it's still there for them later (after taking a hit) or for a teammate who isn't capped.
 
 ### Heart Containers (settled)
 

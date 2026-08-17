@@ -1849,8 +1849,18 @@ export default class GameSimulation implements RoomUiState {
     this.itemPickupColliders.delete(id)
   }
 
-  /** Applies the effect to whichever specific player touched it. */
+  /**
+   * Applies the effect to whichever specific player touched it. A heart at
+   * full lives is left on the ground untouched rather than being consumed
+   * for nothing — this player (or their partner, in co-op, if they're not
+   * also capped) can still come back for it later after taking a hit. No
+   * feedback on the no-op touch, same "silently ignored" treatment as
+   * walking into a locked golden-room door with 0 keys.
+   */
   private handleItemPickup(pickupId: number, itemId: ItemId, player: Player) {
+    if (itemId === 'heart' && player.getLives() >= player.getMaxLives()) {
+      return
+    }
     this.destroyItemPickup(pickupId)
     this.applyGrantedItem(itemId, player)
 
