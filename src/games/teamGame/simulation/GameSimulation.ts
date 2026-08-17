@@ -56,9 +56,15 @@ export const DOOR_ZONES: Record<Direction, DoorZone> = {
 export const BOSS_HOLE_CENTER = { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 }
 export const BOSS_HOLE_RADIUS = 36
 
-/** Devil's Room (DESIGN.md §9) — a second hole, only present alongside the normal one when devilRoomAvailable, off to the side so the two are never confused. Reused as GameplayHud's graphic position too. */
-export const DEVIL_HOLE_CENTER = { x: 150, y: 150 }
-export const DEVIL_HOLE_RADIUS = 36
+/**
+ * Devil's Room (DESIGN.md §9) — a real door on the wall (Isaac-style),
+ * not a second hole in the same spot as the level-up one. Boss rooms
+ * never show/use their real directional doors (checkRoomTransition's boss
+ * branch never reaches the normal door-touch loop, and the room is always
+ * a dead-end spur with only one real neighbor anyway), so any fixed edge
+ * is safe to repurpose here without ever colliding with real navigation.
+ */
+export const DEVIL_DOOR_DIRECTION: Direction = 'north'
 /**
  * Devil's Room isn't a grid room — it reuses the same 800x600 canvas, just
  * laid out with fixed pedestal/exit/spawn positions instead of doors.
@@ -341,7 +347,7 @@ export interface RoomUiState {
   currentRoomPlaceholderLabel(): string | null
   /** Devil's Room (DESIGN.md §9) isn't a normal grid room — GameplayHud checks this first to suppress normal doors/the boss hole and render the devil room's own graphics instead. */
   readonly isInDevilRoom: boolean
-  /** True for the rest of a no-hit boss-room visit — drives whether the devil hole graphic shows up alongside the normal boss hole. */
+  /** True for the rest of a no-hit boss-room visit — drives whether the devil door graphic shows up alongside the normal boss hole. */
   readonly isDevilHoleAvailable: boolean
 }
 
@@ -457,7 +463,7 @@ export default class GameSimulation implements RoomUiState {
   /** Every strong item id, in order, this specific player has ever collected — Shared Consumption replays the *other* player's history onto whoever picks it (see applyGrantedItem/handleDevilPedestalTouch). */
   private hostStrongItemHistory: StrongItemId[] = []
   private joinerStrongItemHistory: StrongItemId[] = []
-  /** True for the rest of this boss-room visit once it's been cleared without a hit — set in rollRoomClearReward's boss branch, reset every loadRoom(). Gates whether the devil hole is even checked in checkRoomTransition. */
+  /** True for the rest of this boss-room visit once it's been cleared without a hit — set in rollRoomClearReward's boss branch, reset every loadRoom(). Gates whether the devil door is even checked in checkRoomTransition. */
   private devilRoomAvailable = false
   private inDevilRoom = false
   /** The boss room's coord — where exitDevilRoom() sends you back to. */
@@ -1086,10 +1092,7 @@ export default class GameSimulation implements RoomUiState {
           this.startLevel(this.level + 1)
           return
         }
-        if (
-          this.devilRoomAvailable &&
-          Phaser.Math.Distance.Between(player.x, player.y, DEVIL_HOLE_CENTER.x, DEVIL_HOLE_CENTER.y) < DEVIL_HOLE_RADIUS
-        ) {
+        if (this.devilRoomAvailable && isInsideZone(player.x, player.y, DOOR_ZONES[DEVIL_DOOR_DIRECTION])) {
           this.enterDevilRoom()
           return
         }
@@ -1308,7 +1311,7 @@ export default class GameSimulation implements RoomUiState {
 
   // ---- Devil's Room (DESIGN.md §9) ----
   // Not a grid room — reuses the boss room's own canvas as a detour, see
-  // DEVIL_HOLE_CENTER/checkRoomTransition's boss branch for how you get here.
+  // DEVIL_DOOR_DIRECTION/checkRoomTransition's boss branch for how you get here.
 
   private enterDevilRoom() {
     this.teardownCurrentRoom()

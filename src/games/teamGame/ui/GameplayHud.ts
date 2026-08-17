@@ -7,8 +7,7 @@ import {
   DOOR_ZONES,
   BOSS_HOLE_CENTER,
   BOSS_HOLE_RADIUS,
-  DEVIL_HOLE_CENTER,
-  DEVIL_HOLE_RADIUS,
+  DEVIL_DOOR_DIRECTION,
   DEVIL_EXIT_CENTER,
   DEVIL_EXIT_RADIUS,
 } from '../simulation/GameSimulation'
@@ -137,8 +136,10 @@ const GOLDEN_DOOR_CLOSED_COLOR = 0x665200
 const BOSS_DOOR_OPEN_COLOR = 0xdd2222
 const BOSS_DOOR_CLOSED_COLOR = 0x551111
 const BOSS_HOLE_COLOR = 0x110022
-/** Devil's Room (DESIGN.md §9) — a hot red so it never reads as "the same hole" as the boss hole's cold near-black purple, even though both are the same shape/size sitting in the same room. */
-const DEVIL_HOLE_COLOR = 0x660000
+/** Devil's Room (DESIGN.md §9) — a real door (Isaac-style), not a hole, so it never reads as "the same thing" as the level-up hole even at a glance. Distinct from every other door color too (green/gold/red-for-boss-neighbor above). */
+const DEVIL_DOOR_COLOR = 0x9900cc
+/** Devil's Room's own exit back to the boss room — still a hole, since that side isn't the confusable one. */
+const DEVIL_EXIT_COLOR = 0x660000
 const MINI_MAP_MARGIN = 16
 const HEARTS_MARGIN = 16
 /** Vertical space reserved for the partner-hearts row above the minimap — the minimap itself is pushed down by this much. */
@@ -197,8 +198,8 @@ export default class GameplayHud {
   private readonly sharedUiObjects: Phaser.GameObjects.GameObject[] = []
   private readonly doorGraphics: Partial<Record<Direction, Phaser.GameObjects.Rectangle>> = {}
   private readonly bossHoleGraphic: Phaser.GameObjects.Arc
-  /** Only visible in the boss room, alongside the normal hole, once isDevilHoleAvailable. */
-  private readonly devilHoleGraphic: Phaser.GameObjects.Arc
+  /** A real door on the wall (DEVIL_DOOR_DIRECTION), not a hole — only visible in the boss room once isDevilHoleAvailable. */
+  private readonly devilDoorGraphic: Phaser.GameObjects.Rectangle
   /** Only visible while isInDevilRoom — leads back to the boss room you detoured from. */
   private readonly devilExitGraphic: Phaser.GameObjects.Arc
   private readonly miniMap: MiniMap
@@ -241,11 +242,18 @@ export default class GameplayHud {
     this.bossHoleGraphic = this.scene.add
       .circle(BOSS_HOLE_CENTER.x, BOSS_HOLE_CENTER.y, BOSS_HOLE_RADIUS, BOSS_HOLE_COLOR)
       .setVisible(false)
-    this.devilHoleGraphic = this.scene.add
-      .circle(DEVIL_HOLE_CENTER.x, DEVIL_HOLE_CENTER.y, DEVIL_HOLE_RADIUS, DEVIL_HOLE_COLOR)
+    const devilDoorZone = DOOR_ZONES[DEVIL_DOOR_DIRECTION]
+    this.devilDoorGraphic = this.scene.add
+      .rectangle(
+        devilDoorZone.x + devilDoorZone.width / 2,
+        devilDoorZone.y + devilDoorZone.height / 2,
+        devilDoorZone.width,
+        devilDoorZone.height,
+        DEVIL_DOOR_COLOR,
+      )
       .setVisible(false)
     this.devilExitGraphic = this.scene.add
-      .circle(DEVIL_EXIT_CENTER.x, DEVIL_EXIT_CENTER.y, DEVIL_EXIT_RADIUS, DEVIL_HOLE_COLOR)
+      .circle(DEVIL_EXIT_CENTER.x, DEVIL_EXIT_CENTER.y, DEVIL_EXIT_RADIUS, DEVIL_EXIT_COLOR)
       .setVisible(false)
 
     // Minimap is pushed down to leave room for the partner-hearts row above it.
@@ -283,16 +291,16 @@ export default class GameplayHud {
       // Not a grid room — no doors, no boss hole, just the exit back.
       Object.values(this.doorGraphics).forEach((rect) => rect?.setVisible(false))
       this.bossHoleGraphic.setVisible(false)
-      this.devilHoleGraphic.setVisible(false)
+      this.devilDoorGraphic.setVisible(false)
       this.devilExitGraphic.setVisible(true)
     } else if (state.isCurrentRoomBoss()) {
       Object.values(this.doorGraphics).forEach((rect) => rect?.setVisible(false))
       this.bossHoleGraphic.setVisible(clear)
-      this.devilHoleGraphic.setVisible(clear && state.isDevilHoleAvailable)
+      this.devilDoorGraphic.setVisible(clear && state.isDevilHoleAvailable)
       this.devilExitGraphic.setVisible(false)
     } else {
       this.bossHoleGraphic.setVisible(false)
-      this.devilHoleGraphic.setVisible(false)
+      this.devilDoorGraphic.setVisible(false)
       this.devilExitGraphic.setVisible(false)
       for (const direction of ALL_DIRECTIONS) {
         const rect = this.doorGraphics[direction]
@@ -455,7 +463,7 @@ export default class GameplayHud {
     this.sharedUiObjects.forEach((object) => object.destroy())
     Object.values(this.doorGraphics).forEach((rect) => rect?.destroy())
     this.bossHoleGraphic.destroy()
-    this.devilHoleGraphic.destroy()
+    this.devilDoorGraphic.destroy()
     this.devilExitGraphic.destroy()
     this.miniMap.destroy()
     this.gameOverText?.destroy()
