@@ -28,6 +28,7 @@ import DevilPedestal from '../entities/DevilPedestal'
 import type { DevilItemId } from '../gameplay/devilItems'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import { getItemLabel } from '../gameplay/items'
+import type { RoleId } from '../gameplay/roles'
 import type { Direction, RoomCoord } from '../rooms/floorLayout'
 import { getRoomDefinition, hasNeighbor, coordsEqual } from '../rooms/floorLayout'
 import type { MiniMapRoomInfo } from '../ui/MiniMap'
@@ -353,6 +354,14 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
 
   get partnerMaxLives(): number | null {
     return this.hostPlayer?.getMaxLives() ?? null
+  }
+
+  get ownRole(): RoleId | null {
+    return this.joinerPlayer?.getCurrentRole() ?? null
+  }
+
+  get partnerRole(): RoleId | null {
+    return this.hostPlayer?.getCurrentRole() ?? null
   }
 
   isCurrentRoomBoss(): boolean {

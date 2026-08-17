@@ -24,6 +24,17 @@ import {
 } from '../gameplay/items'
 import type { DevilItemId } from '../gameplay/devilItems'
 import { DEVIL_ITEMS, availableDevilItemIds } from '../gameplay/devilItems'
+import type { RoleId } from '../gameplay/roles'
+import {
+  isRoleId,
+  ICE_FREEZE_CHANCE,
+  ICE_FREEZE_DURATION_MS,
+  ELECTRIC_CHAIN_CHANCE,
+  ELECTRIC_CHAIN_RADIUS,
+  ELECTRIC_CHAIN_MAX_HOPS,
+  GRAVITY_PULL_RADIUS,
+  GRAVITY_PULL_STRENGTH,
+} from '../gameplay/roles'
 import { bonusContainersForLevel } from '../gameplay/lives'
 import type { AttackState } from '../gameplay/attack'
 import { createAttackState, canFire, recordFire } from '../gameplay/attack'
@@ -347,6 +358,9 @@ export interface RoomUiState {
   readonly ownMaxLives: number
   readonly partnerLives: number | null
   readonly partnerMaxLives: number | null
+  /** Currently equipped role (DESIGN.md §5), or null before the first one is found — drives the HUD's minimal role indicator. */
+  readonly ownRole: RoleId | null
+  readonly partnerRole: RoleId | null
   /** Team-shared, not per-player — see GameSimulation's coinCount field. Nothing spends this yet (roadmap stage 13, the future shop). */
   readonly coins: number
   /** Team-shared, not per-player — opens Chests. See GameSimulation's keyCount field. */
@@ -484,11 +498,12 @@ export default class GameSimulation implements RoomUiState {
 
   // Angel Room (DESIGN.md §9) — a real grid room (an extra optional spur,
   // like Gamble Shrine), unlike Devil's Room. Reuses the regular ItemPickup
-  // entity/broadcast channel directly (see spawnAngelPickups) instead of
-  // its own new entity/protocol, since Angel items already are real
-  // StrongItemIds with the exact "visually identified" look this needs.
+  // entity directly (see spawnAngelPickups) — not its own new entity class —
+  // since Angel items are real StrongItemIds/RoleIds with the exact
+  // "visually identified" look this needs; the broadcast channel is its
+  // own dedicated field though (see buildStateMessage's angelPickups).
   /** Rolled lazily the first time the room is entered, then remembered for the rest of the level — a re-visit shows the same 3 until one is picked. Reset in startLevel(). */
-  private angelRoomItems: StrongItemId[] | null = null
+  private angelRoomItems: (StrongItemId | RoleId)[] | null = null
   /** True once any option has been picked — the room reads as empty forever after. Reset in startLevel(). */
   private angelRoomResolved = false
   private angelPickups: Map<number, ItemPickup> = new Map()
@@ -586,6 +601,14 @@ export default class GameSimulation implements RoomUiState {
     return this.joinerPlayer ? this.joinerPlayer.getMaxLives() : null
   }
 
+  get ownRole(): RoleId | null {
+    return this.hostPlayer.getCurrentRole()
+  }
+
+  get partnerRole(): RoleId | null {
+    return this.joinerPlayer ? this.joinerPlayer.getCurrentRole() : null
+  }
+
   get coins(): number {
     return this.coinCount
   }
@@ -649,7 +672,7 @@ export default class GameSimulation implements RoomUiState {
     this.hostPlayer.refreshVisuals(now)
     this.joinerPlayer?.refreshVisuals(now)
 
-    this.roomEnemies.forEach((enemy) => {
+    this.roomEnemies.forEach((enemy, enemyId) => {
       const nearest = this.getNearestPlayerPos(enemy.x, enemy.y)
       enemy.updateMovement(nearest, now)
       const fireAngles = enemy.tryFireAt(nearest, now)
@@ -661,7 +684,14 @@ export default class GameSimulation implements RoomUiState {
       if (enemy.tryDropHazardAt(now) && enemy.archetype.hazard) {
         this.spawnHazardZone(enemy.x, enemy.y, enemy.archetype.hazard.radius, enemy.archetype.hazard.durationMs)
       }
-      enemy.refreshVisuals()
+      // Poison's DoT (DESIGN.md §5) can kill on its own, independent of any
+      // fresh hit this frame — handled the same way the attached-projectile
+      // tick below handles its own independent death.
+      if (enemy.updateStatusEffects(now)) {
+        this.resolveEnemyDeath(enemyId, enemy)
+        return
+      }
+      enemy.refreshVisuals(now)
     })
 
     this.tryFirePlayer(this.hostPlayer, hostFiring, now)
@@ -689,6 +719,12 @@ export default class GameSimulation implements RoomUiState {
         projectile.steerTo({ x: attachedEnemy.x, y: attachedEnemy.y })
 
         if (projectile.shouldTickAttached(this.scene.time.now)) {
+          // Known composability gap, flagged not silent (DESIGN.md's
+          // composability tenet): an attached tick doesn't re-roll
+          // applyRoleOnHitEffect the way a fresh handleProjectileHitEnemy
+          // hit does, so a Homing+Pierce shot's attached ticks don't
+          // re-apply Ice/Glue/Poison/Electric. Homing+Pierce+a status role
+          // is an unusual enough stack to defer rather than block this pass on.
           const diedByTick = attachedEnemy.applyHit(projectile.damage)
           if (diedByTick) {
             this.resolveEnemyDeath(attachedId, attachedEnemy)
@@ -712,6 +748,19 @@ export default class GameSimulation implements RoomUiState {
         if (nearest) {
           projectile.steerTo({ x: nearest.x, y: nearest.y })
         }
+      }
+
+      // Gravity's pull (DESIGN.md §5) — a per-frame effect while the shot
+      // is in flight, not an on-hit proc (see applyRoleOnHitEffect, which
+      // deliberately has no 'gravity' branch). Runs every frame the
+      // projectile is alive, following wherever it currently is.
+      if (projectile.roleEffect === 'gravity') {
+        this.roomEnemies.forEach((enemy) => {
+          const d = Phaser.Math.Distance.Between(projectile.x, projectile.y, enemy.x, enemy.y)
+          if (d <= GRAVITY_PULL_RADIUS) {
+            enemy.applyGravityPull(now, projectile.x, projectile.y, GRAVITY_PULL_STRENGTH)
+          }
+        })
       }
 
       if (projectile.hasExpired()) {
@@ -831,7 +880,7 @@ export default class GameSimulation implements RoomUiState {
     }
   }
 
-  /** Effect-application, shared by real pickups and the dev give-item menu. 'heart', 'heartContainer', 'coin', and 'key' aren't PlayerStats mutators, so they're special-cased here rather than going through Player.applyItem. */
+  /** Effect-application, shared by real pickups and the dev give-item menu. 'heart', 'heartContainer', 'coin', and 'key' aren't PlayerStats mutators, and a role id isn't either (see Player.equipRole) — all special-cased here rather than going through Player.applyItem. */
   private applyGrantedItem(itemId: ItemId, player: Player) {
     if (itemId === 'heart') {
       player.grantLife()
@@ -843,6 +892,8 @@ export default class GameSimulation implements RoomUiState {
     } else if (itemId === 'key') {
       // Team-shared, not per-player — see the `keys` field/getter.
       this.keyCount++
+    } else if (isRoleId(itemId)) {
+      player.equipRole(itemId)
     } else {
       player.applyItem(itemId)
     }
@@ -862,7 +913,11 @@ export default class GameSimulation implements RoomUiState {
       history.push(itemId as StrongItemId)
     }
 
-    if (itemId !== 'heart' && itemId !== 'coin' && itemId !== 'key' && STAT_ITEMS[itemId].unique) {
+    // Role ids never appear in STAT_ITEMS (they're not a PlayerStats
+    // mutator) — a role is a replaceable mode, not a consumed one-per-run
+    // resource, so it's deliberately never added to grantedUniqueItems
+    // either; finding the same role again later is fine.
+    if (itemId !== 'heart' && itemId !== 'coin' && itemId !== 'key' && !isRoleId(itemId) && STAT_ITEMS[itemId].unique) {
       this.grantedUniqueItems.add(itemId)
     }
   }
@@ -874,7 +929,7 @@ export default class GameSimulation implements RoomUiState {
       host: this.hostPlayer.getNetworkState(now),
       joiner: this.joinerPlayer
         ? this.joinerPlayer.getNetworkState(now)
-        : { pos: { x: 0, y: 0 }, lives: 0, maxLives: 0, isOut: true, isInvincible: false },
+        : { pos: { x: 0, y: 0 }, lives: 0, maxLives: 0, isOut: true, isInvincible: false, role: null },
       roomCoord: this.roomCoord,
       enemies: Array.from(this.roomEnemies.values()).map((enemy) => enemy.getNetworkState()),
       projectiles: Array.from(this.projectiles.entries()).map(([id, projectile]) => ({
@@ -1055,15 +1110,21 @@ export default class GameSimulation implements RoomUiState {
 
     for (const a of anglesSet) this.spawnProjectile(player, a)
 
+    // Role effect (DESIGN.md §5) captured once here at spawn time — see
+    // Projectile.roleEffect's own note on why it's captured, not read live.
+    const roleEffect = player.getCurrentRole()
+
     // Buddy mirrors the player's raw facing, not the Multi Shot/Multi
     // Direction-expanded angle set — deliberately kept simple for this
     // first pass (fixed single shot per buddy per player-fire) rather than
     // composing with those stacks. Flagged, not silent: revisit against
     // the composability tenet (DESIGN.md, top of file) before calling
-    // Buddy "done."
+    // Buddy "done." Its on-hit *role* identity does compose, though — only
+    // Buddy's damage is the named non-scaling exception (DESIGN.md §7),
+    // nothing says its status-effect identity should be exempt too.
     const buddies = player === this.hostPlayer ? this.hostBuddies : this.joinerBuddies
     for (const buddy of buddies) {
-      this.spawnBuddyProjectile(buddy.x, buddy.y, facing)
+      this.spawnBuddyProjectile(buddy.x, buddy.y, facing, roleEffect)
     }
 
     // Turret Pact (Devil's Room, DESIGN.md §9) — every Orbiting Shield this
@@ -1073,7 +1134,7 @@ export default class GameSimulation implements RoomUiState {
     if (stats.hasTurretShields) {
       const shields = player === this.hostPlayer ? this.hostShields : this.joinerShields
       for (const shield of shields) {
-        this.spawnBuddyProjectile(shield.x, shield.y, facing)
+        this.spawnBuddyProjectile(shield.x, shield.y, facing, roleEffect)
       }
     }
   }
@@ -1957,12 +2018,14 @@ export default class GameSimulation implements RoomUiState {
   /**
    * A real grid room (DESIGN.md §9), unlike Devil's Room — reuses the
    * regular ItemPickup entity directly (its curated items are already real
-   * StrongItemIds, rendered with their true identified color/label same as
-   * any other strong item) and shares its id space with the normal
-   * itemPickups map so both can be broadcast through the one existing
-   * itemPickups channel (see buildStateMessage) with no new network state.
+   * StrongItemIds/RoleIds, rendered with their true identified color/label
+   * same as any other strong/role item) and shares nextItemPickupId's id
+   * space with the normal itemPickups map so ids never collide, even
+   * though the broadcast itself is its own dedicated field (see
+   * buildStateMessage's angelPickups — kept separate from itemPickups on
+   * purpose, see the comment there).
    */
-  private spawnAngelPickups(items: StrongItemId[], anchor: { x: number; y: number }) {
+  private spawnAngelPickups(items: (StrongItemId | RoleId)[], anchor: { x: number; y: number }) {
     const total = items.length
     items.forEach((itemId, index) => {
       const x = anchor.x + (index - (total - 1) / 2) * ANGEL_PICKUP_SPACING
@@ -1990,7 +2053,7 @@ export default class GameSimulation implements RoomUiState {
   }
 
   /** Choosing any option destroys every other one immediately, same "others are gone" rule and same same-frame-double-pick guard as Devil's Room pedestals. No cost — this is Angel Room's whole point. */
-  private handleAngelPickupTouch(pickupId: number, itemId: StrongItemId, player: Player) {
+  private handleAngelPickupTouch(pickupId: number, itemId: StrongItemId | RoleId, player: Player) {
     if (!this.angelPickups.has(pickupId)) {
       return
     }
@@ -2020,6 +2083,7 @@ export default class GameSimulation implements RoomUiState {
       pierceCount: stats.hasPiercing,
       homingStrength: stats.hasHoming,
       color: projectileColorForDamage(damage),
+      roleEffect: player.getCurrentRole(),
     })
     this.projectiles.set(id, projectile)
 
@@ -2047,13 +2111,14 @@ export default class GameSimulation implements RoomUiState {
     this.projectileColliders.set(id, colliders)
   }
 
-  /** Buddy's shot — fixed size/damage, deliberately not reading the owning player's stats (see the note in tryFirePlayer). Shares the same projectiles/projectileColliders maps as a normal shot, so it gets pierce-fix collider registration against newly-spawned enemies, room-transition cleanup, and broadcast for free. */
-  private spawnBuddyProjectile(x: number, y: number, angle: number) {
+  /** Buddy's shot — fixed size/damage, deliberately not reading the owning player's stats (see the note in tryFirePlayer). Its role effect *does* compose (only the damage/size stat-scaling is the named exception), so callers pass the owning player's roleEffect through. Shares the same projectiles/projectileColliders maps as a normal shot, so it gets pierce-fix collider registration against newly-spawned enemies, room-transition cleanup, and broadcast for free. */
+  private spawnBuddyProjectile(x: number, y: number, angle: number, roleEffect: RoleId | null) {
     const id = this.nextProjectileId++
     const projectile = new Projectile(this.scene, id, x, y, angle, {
       simulated: true,
       damage: BUDDY_PROJECTILE_DAMAGE,
       radius: BUDDY_PROJECTILE_RADIUS,
+      roleEffect,
     })
     this.projectiles.set(id, projectile)
 
@@ -2113,6 +2178,9 @@ export default class GameSimulation implements RoomUiState {
     const died = enemy.applyHit(projectile.damage)
     if (died) {
       this.resolveEnemyDeath(enemyId, enemy)
+    } else {
+      // Skipped entirely on a lethal hit — nothing to apply status to.
+      this.applyRoleOnHitEffect(projectile.roleEffect, enemy, enemyId, projectile.damage, this.scene.time.now)
     }
 
     if (projectile.consumePierce()) {
@@ -2121,6 +2189,77 @@ export default class GameSimulation implements RoomUiState {
         this.destroyProjectile(projectileId)
       }
     }
+  }
+
+  /**
+   * The 5 status-effect roles' on-hit identity (DESIGN.md §5). Gravity has
+   * no branch here — its pull is a per-frame in-flight effect (see
+   * update()'s projectile loop), not an on-hit proc. Laser/Bomb aren't
+   * buildable yet so their ids never reach here either.
+   */
+  private applyRoleOnHitEffect(roleEffect: RoleId | null, enemy: Enemy, enemyId: number, damage: number, now: number) {
+    if (roleEffect === 'ice') {
+      if (Math.random() < ICE_FREEZE_CHANCE) {
+        enemy.applyFreeze(now, ICE_FREEZE_DURATION_MS)
+      }
+    } else if (roleEffect === 'glue') {
+      enemy.addSlowStack(now)
+    } else if (roleEffect === 'poison') {
+      enemy.addPoisonStack(now)
+    } else if (roleEffect === 'electric') {
+      this.applyElectricChain(enemy, enemyId, damage)
+    }
+  }
+
+  /**
+   * Electric's chain (DESIGN.md §5) — a single ELECTRIC_CHAIN_CHANCE roll
+   * per hit (not one per hop); on success, the chain is guaranteed to
+   * reach up to ELECTRIC_CHAIN_MAX_HOPS additional enemies, propagating
+   * outward from wherever the chain currently is (not always back to the
+   * original target), so it can snake through a loose cluster rather than
+   * only ever reaching the same one neighbor twice. Stops early only if it
+   * runs out of enemies in range; continues past a hop that kills its
+   * target (the last known position of a just-killed enemy is still a
+   * valid arc origin).
+   */
+  private applyElectricChain(originEnemy: Enemy, originId: number, damage: number) {
+    if (Math.random() >= ELECTRIC_CHAIN_CHANCE) {
+      return
+    }
+    const hitIds = new Set<number>([originId])
+    let fromX = originEnemy.x
+    let fromY = originEnemy.y
+    for (let hop = 0; hop < ELECTRIC_CHAIN_MAX_HOPS; hop++) {
+      const target = this.findNearestOtherEnemy(hitIds, fromX, fromY, ELECTRIC_CHAIN_RADIUS)
+      if (!target) {
+        return
+      }
+      const [targetId, targetEnemy] = target
+      hitIds.add(targetId)
+      fromX = targetEnemy.x
+      fromY = targetEnemy.y
+      const died = targetEnemy.applyHit(damage)
+      if (died) {
+        this.resolveEnemyDeath(targetId, targetEnemy)
+      }
+    }
+  }
+
+  /** Electric's chain target — nearest living enemy not already part of this chain, within radius, or null. */
+  private findNearestOtherEnemy(excludeIds: Set<number>, x: number, y: number, radius: number): [number, Enemy] | null {
+    let best: [number, Enemy] | null = null
+    let bestDist = radius
+    this.roomEnemies.forEach((candidate, id) => {
+      if (excludeIds.has(id)) {
+        return
+      }
+      const d = Phaser.Math.Distance.Between(x, y, candidate.x, candidate.y)
+      if (d <= bestDist) {
+        bestDist = d
+        best = [id, candidate]
+      }
+    })
+    return best
   }
 
   /**

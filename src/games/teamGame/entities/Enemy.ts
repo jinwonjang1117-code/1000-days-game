@@ -3,6 +3,15 @@ import type { EnemyState, Vec2 } from '../net/syncProtocol'
 import type { ArchetypeId, EnemyArchetype } from '../gameplay/enemyArchetypes'
 import type { AttackState } from '../gameplay/attack'
 import { createAttackState, canFire, recordFire } from '../gameplay/attack'
+import {
+  GLUE_SLOW_PER_STACK,
+  GLUE_MAX_STACKS,
+  GLUE_STACK_DURATION_MS,
+  POISON_DAMAGE_PER_TICK,
+  POISON_TICK_INTERVAL_MS,
+  POISON_MAX_STACKS,
+  POISON_STACK_DURATION_MS,
+} from '../gameplay/roles'
 
 const ENEMY_HIT_FLASH_COLOR = 0xffffff
 const ENEMY_HIT_FLASH_MS = 80
@@ -11,6 +20,10 @@ const HEALTH_TEXT_OFFSET_BASE = 18
 const TELEGRAPH_COLOR = 0xffee00
 /** Berserker's sustained enraged tint — fixed regardless of archetype color, same "clear state signal" idea as the hit-flash. */
 const ENRAGE_COLOR = 0xff2222
+/** Ice's freeze (DESIGN.md §5) — a full stop, distinct from the hit-flash white and the telegraph yellow. */
+const FROZEN_COLOR = 0x66ddff
+/** Poison's DoT (DESIGN.md §5) — matches ROLES.poison.color for visual consistency between the pickup and the effect it causes. */
+const POISONED_COLOR = 0x66cc66
 /** Erratic retargets to a new random direction/speed within this interval range. */
 const ERRATIC_RETARGET_MIN_MS = 300
 const ERRATIC_RETARGET_MAX_MS = 1000
@@ -71,6 +84,25 @@ export default class Enemy {
   // both sides can compute live from health/maxHealth).
   private telegraphing = false
 
+  // Status effects (DESIGN.md §5) — host-only bookkeeping, mirrored to the
+  // joiner as booleans/counts (see getNetworkState/applyReceivedState)
+  // since none of these are derivable from an absolute host timestamp the
+  // joiner doesn't independently track, same reasoning as telegraphing.
+  /** Ice — a full stop until this timestamp. 0 (default) reads as "not frozen" against any real `now`. */
+  private frozenUntil = 0
+  /** Glue — one independently-expiring timestamp per active stack (not a flat refresh per hit). */
+  private slowStackExpirations: number[] = []
+  /** Poison — same independently-expiring-stack shape as Glue. */
+  private poisonStackExpirations: number[] = []
+  private nextPoisonTickAt = 0
+  /** Replaces the old delayedCall-based hit-flash revert — see syncTint, which now needs to run every frame (not just at sparse transition points) to keep the frozen/poisoned tints live. */
+  private flashUntil = 0
+
+  // Shared (host sets directly; joiner mirrors via applyReceivedState) — see EnemyState.
+  private frozen = false
+  private slowStacks = 0
+  private poisonStacks = 0
+
   // Render-only (joiner) only.
   private target: Vec2 | null = null
 
@@ -124,6 +156,13 @@ export default class Enemy {
       return
     }
 
+    // Ice's freeze (DESIGN.md §5) — a full stop, checked once here ahead of
+    // every movement mode rather than duplicated in each branch below.
+    if (this.isFrozen(now)) {
+      this.body.setVelocity(0, 0)
+      return
+    }
+
     if (this.archetype.movement === 'erratic') {
       if (now >= this.nextWanderRetargetAt) {
         const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
@@ -144,7 +183,7 @@ export default class Enemy {
     }
 
     if (this.archetype.movement === 'chase') {
-      const speed = this.effectiveSpeed()
+      const speed = this.effectiveSpeed(now)
       const angle = Math.atan2(nearestPlayerPos.y - this.y, nearestPlayerPos.x - this.x)
       this.body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed)
       return
@@ -155,7 +194,7 @@ export default class Enemy {
     const retreatDistance = (this.archetype.ranged?.range ?? 300) / 1.5
     const distance = Phaser.Math.Distance.Between(this.x, this.y, nearestPlayerPos.x, nearestPlayerPos.y)
     if (distance < retreatDistance) {
-      const speed = this.effectiveSpeed()
+      const speed = this.effectiveSpeed(now)
       const angle = Math.atan2(this.y - nearestPlayerPos.y, this.x - nearestPlayerPos.x)
       this.body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed)
     } else {
@@ -225,18 +264,96 @@ export default class Enemy {
     }
   }
 
-  /** Berserker's enrage — a sustained speed multiplier once health drops to/below the threshold, derived live rather than a stored flag (both host and joiner already know health/maxHealth). */
-  private effectiveSpeed(): number {
+  /**
+   * Berserker's enrage and Glue's slow both fold in here — enrage is a
+   * sustained speed multiplier once health drops to/below the threshold
+   * (derived live, both host and joiner already know health/maxHealth);
+   * Glue's slow is a straight multiplier from the current stack count.
+   * **Known first-pass scope limit**: only 'chase'/'keepDistance' read this
+   * — Erratic's wander and Charger's dash speed don't go through
+   * effectiveSpeed today, so Glue won't slow them yet (Ice's freeze, which
+   * is checked once up front in updateMovement for every mode, still stops
+   * them fine).
+   */
+  private effectiveSpeed(now: number): number {
     const { enrage } = this.archetype
+    let speed = this.archetype.speed
     if (enrage && this.isEnraged()) {
-      return this.archetype.speed * enrage.speedMultiplier
+      speed *= enrage.speedMultiplier
     }
-    return this.archetype.speed
+    speed *= this.slowMultiplier(now)
+    return speed
   }
 
   private isEnraged(): boolean {
     const { enrage } = this.archetype
     return !!enrage && this.health / this.archetype.maxHealth <= enrage.healthThreshold
+  }
+
+  // ---- Status effects (DESIGN.md §5) ----
+
+  /** Ice — extends the freeze rather than overwriting it, so a second freeze landing mid-freeze can't ever shorten the remaining duration. */
+  applyFreeze(now: number, durationMs: number) {
+    this.frozenUntil = Math.max(this.frozenUntil, now + durationMs)
+  }
+
+  isFrozen(now: number): boolean {
+    return now < this.frozenUntil
+  }
+
+  /** Glue — a fresh independently-expiring stack, capped at GLUE_MAX_STACKS. No-ops at the cap rather than refreshing the oldest stack, keeping this simple for a first pass. */
+  addSlowStack(now: number) {
+    if (this.slowStackExpirations.length < GLUE_MAX_STACKS) {
+      this.slowStackExpirations.push(now + GLUE_STACK_DURATION_MS)
+    }
+  }
+
+  /** Poison — same independently-expiring-stack shape as Glue, capped at POISON_MAX_STACKS. */
+  addPoisonStack(now: number) {
+    if (this.poisonStackExpirations.length < POISON_MAX_STACKS) {
+      this.poisonStackExpirations.push(now + POISON_STACK_DURATION_MS)
+    }
+  }
+
+  /** Filters live rather than relying on updateStatusEffects' last prune, so a stack that expired mid-frame (updateMovement runs before updateStatusEffects in GameSimulation.update's enemy loop) never reads stale. */
+  private slowMultiplier(now: number): number {
+    const activeStacks = this.slowStackExpirations.filter((expiresAt) => expiresAt > now).length
+    return Math.max(0, 1 - activeStacks * GLUE_SLOW_PER_STACK)
+  }
+
+  /**
+   * Call once per frame (host only) — expires stacks whose timers have run
+   * out and ticks Poison damage. Returns true if this tick brought health
+   * to 0, same shape as applyHit, so the caller (GameSimulation.update)
+   * handles death the same way it already does for the attached-projectile
+   * tick. Reuses applyHit itself (rather than duplicating its hit-flash/
+   * health-label/death-return logic) — a poison tick reads visually the
+   * same as any other hit, which is fine.
+   */
+  updateStatusEffects(now: number): boolean {
+    this.slowStackExpirations = this.slowStackExpirations.filter((expiresAt) => expiresAt > now)
+    this.poisonStackExpirations = this.poisonStackExpirations.filter((expiresAt) => expiresAt > now)
+
+    if (this.poisonStackExpirations.length > 0 && now >= this.nextPoisonTickAt) {
+      this.nextPoisonTickAt = now + POISON_TICK_INTERVAL_MS
+      return this.applyHit(POISON_DAMAGE_PER_TICK * this.poisonStackExpirations.length)
+    }
+    return false
+  }
+
+  /**
+   * Gravity — an additive per-frame velocity nudge toward (towardX, towardY)
+   * on top of whatever updateMovement already set this frame, called from
+   * GameSimulation.update's projectile loop for every in-flight Gravity
+   * shot. No-ops on a frozen enemy — it's already fully stopped by Ice, and
+   * pulling it anyway would silently break that guarantee.
+   */
+  applyGravityPull(now: number, towardX: number, towardY: number, strength: number) {
+    if (!this.body || this.isFrozen(now)) {
+      return
+    }
+    const angle = Math.atan2(towardY - this.y, towardX - this.x)
+    this.body.setVelocity(this.body.velocity.x + Math.cos(angle) * strength, this.body.velocity.y + Math.sin(angle) * strength)
   }
 
   /** Ranged archetypes only. Returns fire angles (more than one for a Spread Shooter's fan) if in range and off cooldown, else null. */
@@ -312,12 +429,25 @@ export default class Enemy {
       health: this.health,
       telegraphing: this.telegraphing,
       countsForClear: this.countsForClear,
+      frozen: this.frozen,
+      slowStacks: this.slowStacks,
+      poisonStacks: this.poisonStacks,
     }
   }
 
-  /** Call every frame — keeps the label glued to the moving square. */
-  refreshVisuals() {
+  /**
+   * Call every frame (host) — keeps the label glued to the moving square,
+   * and refreshes the shared frozen/slowStacks/poisonStacks fields from the
+   * host-only timer state (updateStatusEffects already pruned expired
+   * stacks this frame) so getNetworkState/syncTint both read the current
+   * count, not a stale one from whenever a stack was last added/removed.
+   */
+  refreshVisuals(now: number) {
+    this.frozen = this.isFrozen(now)
+    this.slowStacks = this.slowStackExpirations.length
+    this.poisonStacks = this.poisonStackExpirations.length
     this.syncHealthLabel()
+    this.syncTint()
   }
 
   // ---- Render-only (joiner) ----
@@ -329,6 +459,9 @@ export default class Enemy {
     this.target = state.pos
     this.health = state.health
     this.telegraphing = state.telegraphing
+    this.frozen = state.frozen
+    this.slowStacks = state.slowStacks
+    this.poisonStacks = state.poisonStacks
     this.syncHealthLabel()
     this.syncTint()
   }
@@ -345,24 +478,38 @@ export default class Enemy {
 
   // ---- Shared ----
 
+  /**
+   * flashUntil (not a delayedCall like before) so syncTint can evaluate the
+   * flash as just another priority level instead of a separate revert path
+   * — needed now that frozen/poisoned are continuously-refreshed states
+   * with no discrete "just changed" event of their own to hang a revert off.
+   */
   private flashHit() {
-    this.square.setFillStyle(ENEMY_HIT_FLASH_COLOR)
-    // Reverts via syncTint (not a hardcoded archetype.color) so a hit that
-    // crosses the enrage threshold ends up showing the enrage tint once
-    // the flash clears, instead of stomping back to the base color.
-    this.square.scene.time.delayedCall(ENEMY_HIT_FLASH_MS, () => this.syncTint())
+    this.flashUntil = this.square.scene.time.now + ENEMY_HIT_FLASH_MS
+    this.syncTint()
   }
 
   /**
-   * Sets the square's fill color from current state — telegraphing takes
-   * priority (Charger's dodge-tell), then a sustained enrage tint
-   * (Berserker), then the plain archetype color. Deliberately only called
-   * at specific transition points (charge state changes, applyReceivedState,
-   * flashHit's revert) rather than every frame, so it never fights with the
-   * hit-flash's own brief white flash.
+   * Sets the square's fill color from current state, in priority order:
+   * the hit-flash (now < flashUntil) beats everything since it's the
+   * shortest and most transient; then Ice's frozen tint and Poison's tint
+   * (mechanically significant, continuously-refreshed states); then
+   * telegraphing (Charger's dodge-tell); then a sustained enrage tint
+   * (Berserker); then the plain archetype color. Called every frame from
+   * both refreshVisuals (host) and applyReceivedState (joiner) rather than
+   * only at sparse transition points — frozen/poisoned have no discrete
+   * "just changed" event the way charge-state transitions do, so this has
+   * to re-evaluate continuously instead of only reacting to one.
    */
   private syncTint() {
-    if (this.telegraphing) {
+    const now = this.square.scene.time.now
+    if (now < this.flashUntil) {
+      this.square.setFillStyle(ENEMY_HIT_FLASH_COLOR)
+    } else if (this.frozen) {
+      this.square.setFillStyle(FROZEN_COLOR)
+    } else if (this.poisonStacks > 0) {
+      this.square.setFillStyle(POISONED_COLOR)
+    } else if (this.telegraphing) {
       this.square.setFillStyle(TELEGRAPH_COLOR)
     } else if (this.isEnraged()) {
       this.square.setFillStyle(ENRAGE_COLOR)

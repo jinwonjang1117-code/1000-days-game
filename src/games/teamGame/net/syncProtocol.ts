@@ -10,6 +10,8 @@ import { isKnownItemId } from '../gameplay/items'
 import type { DevilItemId } from '../gameplay/devilItems'
 import { DEVIL_ITEM_IDS } from '../gameplay/devilItems'
 import type { RoomObstacle } from '../rooms/roomLayouts'
+import type { RoleId } from '../gameplay/roles'
+import { isRoleId } from '../gameplay/roles'
 
 export interface KeyState {
   up: boolean
@@ -93,6 +95,12 @@ export interface EnemyState {
   telegraphing: boolean
   /** Fixed for this enemy's lifetime (false only for a Chest mimic's ambush Swarmers) — sent every tick same as archetype so the joiner can pass it into the Enemy constructor when a new id first appears. */
   countsForClear: boolean
+  /** Ice's freeze (DESIGN.md §5) — not derivable client-side since it depends on an absolute host timestamp (frozenUntil) the joiner doesn't independently track, same reasoning as telegraphing. */
+  frozen: boolean
+  /** Glue's active stack count — 0 when not slowed. Only the count is broadcast (not each stack's individual expiry), enough for both the slow-multiplier math (host-only) and a future visual cue. */
+  slowStacks: number
+  /** Poison's active stack count — 0 when not poisoned. */
+  poisonStacks: number
 }
 
 /** A lingering damage zone (Slime's periodic drop) — stationary, so unlike EnemyState/ProjectileState there's no interpolation target, just an id/position/radius to render until it drops out of the broadcast. */
@@ -141,6 +149,8 @@ export interface PlayerState {
   maxLives: number
   isOut: boolean
   isInvincible: boolean
+  /** Currently equipped role (DESIGN.md §5), or null before the first one is found — drives both the HUD's role indicator and (indirectly, via each shot's spawn-time roleEffect) the joiner's understanding of why a shot might freeze/slow/poison/chain/pull. */
+  role: RoleId | null
 }
 
 /** Host -> joiner: authoritative state, broadcast at a fixed rate. */
@@ -229,7 +239,8 @@ function isPlayerState(value: unknown): value is PlayerState {
     typeof v.lives === 'number' &&
     typeof v.maxLives === 'number' &&
     typeof v.isOut === 'boolean' &&
-    typeof v.isInvincible === 'boolean'
+    typeof v.isInvincible === 'boolean' &&
+    (v.role === null || (typeof v.role === 'string' && isRoleId(v.role)))
   )
 }
 
@@ -298,7 +309,10 @@ function isEnemyState(value: unknown): value is EnemyState {
     isVec2(v.pos) &&
     typeof v.health === 'number' &&
     typeof v.telegraphing === 'boolean' &&
-    typeof v.countsForClear === 'boolean'
+    typeof v.countsForClear === 'boolean' &&
+    typeof v.frozen === 'boolean' &&
+    typeof v.slowStacks === 'number' &&
+    typeof v.poisonStacks === 'number'
   )
 }
 

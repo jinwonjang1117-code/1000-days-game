@@ -16,6 +16,9 @@
 // for what they just got. Labels are deliberately non-numeric — the exact
 // magnitude is an internal tuning value, not something the reveal promises.
 
+import type { RoleId } from './roles'
+import { ROLE_IDS, NOT_YET_BUILDABLE_ROLES, isRoleId, getRoleLabel } from './roles'
+
 export type BoostItemId = 'speed' | 'fireRate' | 'damage' | 'projectileSpeed' | 'range' | 'size' | 'invincibility' | 'fart'
 export type StrongItemId =
   | 'multiShot'
@@ -28,8 +31,11 @@ export type StrongItemId =
   | 'orbitingShield'
 // 'coin'/'key' are both team-shared, not per-player, nothing spends them
 // yet — groundwork for the future shop (coin) and the treasure chest
-// feature (key), see GameSimulation's `coins`/`keys` fields.
-export type ItemId = BoostItemId | StrongItemId | 'heart' | 'coin' | 'key'
+// feature (key), see GameSimulation's `coins`/`keys` fields. RoleId (DESIGN.md
+// §5) is its own mutually-exclusive single-equip category, sourced the same
+// way as strong items (see randomRewardItemIds/randomAngelItemIds below) but
+// never stacks and never mutates PlayerStats — see Player.equipRole.
+export type ItemId = BoostItemId | StrongItemId | RoleId | 'heart' | 'coin' | 'key'
 
 export interface PlayerStats {
   moveSpeedMultiplier: number
@@ -263,11 +269,26 @@ export function randomStrongItemId(excludeIds?: Set<string>): StrongItemId {
 /** Angel Room's curated pool (DESIGN.md §9) — excluded from the strong pool entirely: Heavy Shot's built-in tradeoff (speed down) sits oddly as a "clean, no-downside" pick even though Angel Room itself charges no separate cost. */
 const ANGEL_EXCLUDED_ITEMS: ReadonlySet<StrongItemId> = new Set(['heavyShot'])
 
-/** Distinct picks from the strong pool minus ANGEL_EXCLUDED_ITEMS, same weighted-distinct mechanism golden/boss rooms already use for their own combined pool. */
-export function randomAngelItemIds(count: number, excludeIds?: Set<string>): StrongItemId[] {
+/**
+ * Role items (DESIGN.md §5) join the golden/boss/Angel reward pools as a
+ * third category, weighted like a strong item's default (0.5) — no separate
+ * drop-rate system. Only weight matters here (distinctWeightedIds only ever
+ * reads `.weight`); labels/colors live in ROLES itself. Laser/Bomb are
+ * excluded via NOT_YET_BUILDABLE_ROLES merged into excludeIds below, not by
+ * omission here, so they're ready to include the moment their own stage lands.
+ */
+const ROLE_ITEM_WEIGHT = 0.5
+const ROLE_ITEM_ENTRIES: Record<RoleId, { weight: number }> = Object.fromEntries(
+  ROLE_IDS.map((id) => [id, { weight: ROLE_ITEM_WEIGHT }]),
+) as Record<RoleId, { weight: number }>
+
+/** Distinct picks from the strong pool minus ANGEL_EXCLUDED_ITEMS, plus buildable role items — same weighted-distinct mechanism golden/boss rooms already use for their own combined pool. */
+export function randomAngelItemIds(count: number, excludeIds?: Set<string>): (StrongItemId | RoleId)[] {
   const merged = new Set<string>(excludeIds)
   ANGEL_EXCLUDED_ITEMS.forEach((id) => merged.add(id))
-  return distinctWeightedIds(STRONG_ITEMS, count, merged)
+  NOT_YET_BUILDABLE_ROLES.forEach((id) => merged.add(id))
+  const pool: Record<string, { weight?: number }> = { ...STRONG_ITEMS, ...ROLE_ITEM_ENTRIES }
+  return distinctWeightedIds(pool, count, merged) as (StrongItemId | RoleId)[]
 }
 
 /**
@@ -293,14 +314,19 @@ function distinctWeightedIds<T extends string>(record: Record<T, { weight?: numb
 export const STAT_ITEMS: Record<BoostItemId | StrongItemId, ItemDefinition> = { ...BOOST_ITEMS, ...STRONG_ITEMS }
 
 /**
- * Golden/boss room reward roll (DESIGN.md §9) — draws from *both* tiers
- * combined, not strong items only, so a guaranteed room can also hand out
- * a (still mystery-rendered, since the pickup's visual keys off the item
- * id being a StrongItemId or not — see ItemPickup.ts) boost item. excludeIds
- * keeps already-granted unique items out of the pool — see ItemDefinition.unique.
+ * Golden/boss room reward roll (DESIGN.md §9) — draws from all three tiers
+ * combined (boost + strong + role), not strong items only, so a guaranteed
+ * room can also hand out a (still mystery-rendered, since the pickup's
+ * visual keys off the item id being a StrongItemId/RoleId or not — see
+ * ItemPickup.ts) boost item, or a role. excludeIds keeps already-granted
+ * unique items out of the pool — see ItemDefinition.unique. Laser/Bomb are
+ * excluded (not buildable yet, DESIGN.md §5) same as Angel Room's mechanism.
  */
-export function randomRewardItemIds(count: number, excludeIds?: Set<string>): (BoostItemId | StrongItemId)[] {
-  return distinctWeightedIds(STAT_ITEMS, count, excludeIds)
+export function randomRewardItemIds(count: number, excludeIds?: Set<string>): (BoostItemId | StrongItemId | RoleId)[] {
+  const merged = new Set<string>(excludeIds)
+  NOT_YET_BUILDABLE_ROLES.forEach((id) => merged.add(id))
+  const pool: Record<string, { weight?: number }> = { ...STAT_ITEMS, ...ROLE_ITEM_ENTRIES }
+  return distinctWeightedIds(pool, count, merged) as (BoostItemId | StrongItemId | RoleId)[]
 }
 
 /** Boss-tier only — regular-tier pickups always render as the shared mystery look, never their real color. */
@@ -319,9 +345,12 @@ export function getItemLabel(id: ItemId): string {
   if (id === 'key') {
     return '열쇠'
   }
+  if (isRoleId(id)) {
+    return getRoleLabel(id)
+  }
   return STAT_ITEMS[id].label
 }
 
 export function isKnownItemId(id: string): id is ItemId {
-  return id === 'heart' || id === 'coin' || id === 'key' || id in BOOST_ITEMS || id in STRONG_ITEMS
+  return id === 'heart' || id === 'coin' || id === 'key' || id in BOOST_ITEMS || id in STRONG_ITEMS || isRoleId(id)
 }

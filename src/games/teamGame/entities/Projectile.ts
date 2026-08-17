@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import type { Vec2 } from '../net/syncProtocol'
+import type { RoleId } from '../gameplay/roles'
 
 // Exported so CoopPlayScene can compute a boosted player's actual shot
 // stats as base * multiplier without duplicating these base numbers.
@@ -53,6 +54,8 @@ export interface ProjectileOptions {
   pierceCount?: number
   /** Homing strength (0 = no homing). Higher numbers increase steering aggressiveness. */
   homingStrength?: number
+  /** The firing player's equipped role (DESIGN.md §5) at the moment this shot was spawned — captured here rather than read live so a role change mid-flight can't retroactively alter an already-fired shot, same reasoning as every other per-shot stat. Defaults to null (no role equipped, or a non-player shot like an enemy's). */
+  roleEffect?: RoleId | null
 }
 
 /**
@@ -65,6 +68,7 @@ export default class Projectile {
   readonly id: number
   readonly shape: Phaser.GameObjects.Arc
   readonly damage: number
+  readonly roleEffect: RoleId | null
   private readonly body: Phaser.Physics.Arcade.Body | null
   // (previously tracked net displacement) -- now using cumulative distance
   private readonly maxRange: number
@@ -93,6 +97,7 @@ export default class Projectile {
     // start position intentionally not stored; cumulative travel is tracked
     this.lastPos = { x, y }
     this.damage = options.damage ?? 1
+    this.roleEffect = options.roleEffect ?? null
     this.maxRange = options.range ?? PROJECTILE_MAX_RANGE
     // Cap piercing to at most 3 hits to limit over-stacking effects.
     this.pierceRemaining = Math.min(options.pierceCount ?? 0, 3)

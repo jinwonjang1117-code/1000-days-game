@@ -15,6 +15,8 @@ import type { Direction } from '../rooms/floorLayout'
 import { ALL_DIRECTIONS, getNeighborCoord, getRoomDefinition } from '../rooms/floorLayout'
 import type { BoostItemId, ItemId, StrongItemId } from '../gameplay/items'
 import { BOOST_ITEM_IDS, STRONG_ITEM_IDS, STAT_ITEMS } from '../gameplay/items'
+import type { RoleId } from '../gameplay/roles'
+import { BUILDABLE_ROLE_IDS, ROLES, getRoleLabel } from '../gameplay/roles'
 import MiniMap from './MiniMap'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -124,6 +126,27 @@ const PARTNER_HEARTS_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontSize: '14px',
 }
 
+/**
+ * Minimal placeholder role indicator (DESIGN.md §5) — plain text under each
+ * heart row, no color-matching or icon yet (real art waits for the later
+ * dedicated UI stage, DESIGN.md §12). Needed to actually verify/play the
+ * feature without it, which is the whole reason this ships now rather than
+ * later alongside real art.
+ */
+const OWN_ROLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '14px',
+  color: '#ffffff',
+}
+const PARTNER_ROLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'monospace',
+  fontSize: '11px',
+  color: '#cccccc',
+}
+const NO_ROLE_LABEL = '역할 없음'
+/** Vertical gap between a heart row and its role label underneath. */
+const ROLE_TEXT_OFFSET = 28
+
 const FILLED_HEART = '❤️'
 const EMPTY_HEART = '🤍'
 
@@ -208,6 +231,8 @@ export default class GameplayHud {
   private readonly keyText: Phaser.GameObjects.Text
   private readonly ownHeartsText: Phaser.GameObjects.Text
   private readonly partnerHeartsText: Phaser.GameObjects.Text
+  private readonly ownRoleText: Phaser.GameObjects.Text
+  private readonly partnerRoleText: Phaser.GameObjects.Text
   private readonly roomPlaceholderText: Phaser.GameObjects.Text
   private gameOverText?: Phaser.GameObjects.Text
   private gameOverHintText?: Phaser.GameObjects.Text
@@ -269,6 +294,14 @@ export default class GameplayHud {
       .text(WORLD_WIDTH - MINI_MAP_MARGIN, MINI_MAP_MARGIN, '', PARTNER_HEARTS_STYLE)
       .setOrigin(1, 0)
       .setDepth(150)
+    this.ownRoleText = this.scene.add
+      .text(HEARTS_MARGIN, HEARTS_MARGIN + ROLE_TEXT_OFFSET, '', OWN_ROLE_STYLE)
+      .setOrigin(0, 0)
+      .setDepth(150)
+    this.partnerRoleText = this.scene.add
+      .text(WORLD_WIDTH - MINI_MAP_MARGIN, MINI_MAP_MARGIN + ROLE_TEXT_OFFSET, '', PARTNER_ROLE_STYLE)
+      .setOrigin(1, 0)
+      .setDepth(150)
     this.roomPlaceholderText = this.scene.add
       .text(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, '', ROOM_PLACEHOLDER_STYLE)
       .setOrigin(0.5)
@@ -279,6 +312,8 @@ export default class GameplayHud {
       this.keyText,
       this.ownHeartsText,
       this.partnerHeartsText,
+      this.ownRoleText,
+      this.partnerRoleText,
       this.roomPlaceholderText,
     )
   }
@@ -324,6 +359,8 @@ export default class GameplayHud {
 
     this.ownHeartsText.setText(heartRow(state.ownLives, state.ownMaxLives))
     this.partnerHeartsText.setText(state.partnerLives === null ? '' : heartRow(state.partnerLives, state.partnerMaxLives ?? 0))
+    this.ownRoleText.setText(state.ownRole ? getRoleLabel(state.ownRole) : NO_ROLE_LABEL)
+    this.partnerRoleText.setText(state.partnerLives === null ? '' : state.partnerRole ? getRoleLabel(state.partnerRole) : NO_ROLE_LABEL)
     this.roomPlaceholderText.setText(state.currentRoomPlaceholderLabel() ?? '')
 
     if (state.isGameOver) {
@@ -403,9 +440,22 @@ export default class GameplayHud {
         .setDepth(210)
       this.pauseMenuObjects.push(devTitle)
 
-      this.renderDevItemGroup(240, devSectionTop + 10, 'Boosts', BOOST_ITEM_IDS, 0x222233, onGiveItem)
-      this.renderDevItemGroup(560, devSectionTop + 10, 'Strong Items', STRONG_ITEM_IDS, 0x332222, onGiveItem)
+      // Three groups side by side, sized to fit the 800px canvas width —
+      // a third *row* below these two was tried first and silently
+      // rendered off the bottom of the 600px-tall canvas (never visible),
+      // so this has to stay horizontal instead of growing vertically.
+      this.renderDevItemGroup(170, devSectionTop + 10, 'Boosts', BOOST_ITEM_IDS, 0x222233, onGiveItem, 2, 280)
+      this.renderDevItemGroup(460, devSectionTop + 10, 'Strong Items', STRONG_ITEM_IDS, 0x332222, onGiveItem, 2, 280)
+      this.renderDevItemGroup(700, devSectionTop + 10, 'Roles', BUILDABLE_ROLE_IDS, 0x223322, onGiveItem, 2, 180)
     }
+  }
+
+  /** STAT_ITEMS covers boost/strong ids; role ids (DESIGN.md §5) aren't stat mutators so they live in ROLES instead — see renderDevItemGroup. */
+  private devItemColor(id: ItemId): number {
+    if (id in STAT_ITEMS) {
+      return STAT_ITEMS[id as BoostItemId | StrongItemId].color
+    }
+    return ROLES[id as RoleId].color
   }
 
   /**
@@ -414,17 +464,21 @@ export default class GameplayHud {
    * height either clips items or leaves the labels cramped. Shows each
    * item's raw id (e.g. "multiDirection") rather than its full localized
    * label — much shorter, and it's what you'd grep the codebase for anyway.
+   * columns/boxWidth are caller-controlled (not derived from ids.length)
+   * since three of these now have to sit side by side within the 800px
+   * canvas without any one of them clipping past its edges — see the three
+   * call sites in showPauseMenu for the actual layout math.
    */
   private renderDevItemGroup(
     centerX: number,
     boxTop: number,
     title: string,
-    ids: (BoostItemId | StrongItemId)[],
+    ids: (BoostItemId | StrongItemId | RoleId)[],
     bgColor: number,
     onGiveItem: (id: ItemId) => void,
+    columns: number,
+    boxWidth: number,
   ) {
-    const columns = 2
-    const boxWidth = 320
     const rowHeight = 20
     const headerHeight = 34
     const rows = Math.max(1, Math.ceil(ids.length / columns))
@@ -442,7 +496,7 @@ export default class GameplayHud {
       const colLeft = centerX - boxWidth / 2 + col * colWidth
       const x = colLeft + 12
       const y = boxTop + headerHeight + row * rowHeight + rowHeight / 2
-      const sw = this.scene.add.rectangle(x, y, 10, 10, STAT_ITEMS[id].color).setDepth(210)
+      const sw = this.scene.add.rectangle(x, y, 10, 10, this.devItemColor(id)).setDepth(210)
       const btn = this.scene.add
         .text(x + 10, y, id, DEV_ITEM_TEXT_STYLE)
         .setOrigin(0, 0.5)

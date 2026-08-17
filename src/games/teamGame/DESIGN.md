@@ -67,23 +67,25 @@ Every character has this same baseline "default attack" (tears-style) before any
 
 ---
 
-## 5. The Seven Roles
+## 5. The Seven Roles (5 of 7 built)
 
 Fire was considered and removed. Final roster:
 
 | Role | Effect | Attack shape | Notes |
 |---|---|---|---|
-| **Ice** | Chance to freeze enemy temporarily (n seconds) on hit | Space-fire projectile | Chance-based, swingy, big payoff |
-| **Glue** | Applies a stacking slow on hit | Space-fire projectile | Reliable, always does *something* |
-| **Poison** | Damage-over-time for n seconds | Space-fire projectile | Sustained damage |
-| **Electric** | Chance to chain damage to a nearby enemy on hit | Space-fire projectile | Only role that can early-detonate a Bomb |
-| **Gravity** | Pulls nearby enemies toward the projectile while in flight | Space-fire projectile | No direct damage identity on its own (by design — team-support role); its signature holdable adds one |
-| **Laser** | Attack becomes an instant beam spanning the room, hits all enemies in the line | Space → instant beam | Changes attack *shape*, not just hit effect |
-| **Bomb** | Powerful AoE on detonation; costs the player/teammate a **full life** if caught in the blast | Hold-charge → thrown, slides and decelerates, explodes after a timed fuse | Highest risk role. Only Electric can detonate it early. Player can move while charging. |
+| **Ice** (built) | 25% chance to freeze an enemy for 1.5s on hit — a full stop, can't act at all | Space-fire projectile | Chance-based, swingy, big payoff |
+| **Glue** (built) | Each hit adds an independently-expiring slow stack (12%/stack, up to 5, 3s each) | Space-fire projectile | Reliable, always does *something* |
+| **Poison** (built) | Each hit adds an independently-expiring DoT stack (1 dmg/tick every 0.5s per stack, up to 5, 3s each) | Space-fire projectile | Sustained damage |
+| **Electric** (built) | 30% chance on hit to trigger a chain — on success, guaranteed to also deal the same damage to up to 2 additional nearby enemies (each within 140px of wherever the chain currently is) | Space-fire projectile | Only role that can early-detonate a Bomb |
+| **Gravity** (built) | Pulls enemies within 120px toward the projectile every frame it's in flight | Space-fire projectile | No direct damage identity on its own (by design — team-support role); its signature holdable adds one |
+| **Laser** (not yet built — Stage 7 follow-up) | Attack becomes an instant beam spanning the room, hits all enemies in the line | Space → instant beam | Changes attack *shape*, not just hit effect — needs its own input-model stage, see CLAUDE.md roadmap |
+| **Bomb** (not yet built — Stage 7 follow-up) | Powerful AoE on detonation; costs the player/teammate a **full life** if caught in the blast | Hold-charge → thrown, slides and decelerates, explodes after a timed fuse | Highest risk role. Only Electric can detonate it early. Player can move while charging. |
 
-### Role acquisition (settled — supersedes the earlier "free pick at run start + shop" draft)
+All 5 built roles are pure on-hit/in-flight decorations on the same default projectile every player already fires — no new attack-shape branching needed for them, unlike Laser/Bomb. Tuning values above are first-pass, tune freely once there's been actual playtesting, same as every other archetype/item table in this project. Values live in `gameplay/roles.ts`.
 
-Roles are **found, not chosen up front.** A role is a single-equip item, mechanically its own category from stackable strong items (§7) even though both are discovered the same way — golden room and boss-room drops. Picking up a new role **replaces** whichever one you currently have (no migration/refund for anything that specialized around the old one — that loss is intentional, same spirit as the old shop-era rule). No free starting pick and no guaranteed early role — **playing the early game on nothing but the default attack is an accepted, expected part of a run**, not a bug. The old "free pick near run start, free change after level 1, further changes via shop" progression is retired along with the shop system it depended on.
+### Role acquisition (built)
+
+Roles are **found, not chosen up front.** A role is a single-equip item, mechanically its own category from stackable strong items (§7) even though both are discovered the same way — golden room, boss-room, and Angel Room (§9) drops, joining the existing combined pool as a third category (same 0.5 default weight a strong item gets). Picking up a new role **replaces** whichever one you currently have (no migration/refund for anything that specialized around the old one — that loss is intentional, same spirit as the old shop-era rule). No free starting pick and no guaranteed early role — **playing the early game on nothing but the default attack is an accepted, expected part of a run**, not a bug. The old "free pick near run start, free change after level 1, further changes via shop" progression is retired along with the shop system it depended on. Laser/Bomb are excluded from every acquisition pool until their own follow-up stage builds the attack-shape replacement they need — same exclusion mechanism already used to keep Heavy Shot out of the Angel Room pool.
 
 ---
 
@@ -140,7 +142,7 @@ Regular pickups, a stackable strong-item pool, a single-equip role slot, and a s
 | Glue | *Molasses Trap* | Slow splashes to nearby enemies |
 | Poison | *Plague Vial* | Poison spreads to adjacent enemies on every tick, not just on death |
 | Bomb | *Volatile Core* | Blast radius substantially increased (no self-damage reduction — leans into the risk) |
-| Electric | *Overcharge Coil* | Chain jumps to 2 additional enemies instead of 1 |
+| Electric | *Overcharge Coil* | Chain jumps to 2 additional enemies instead of 1 (⚠️ stale — the base role itself now chains up to 2, §5; this holdable's effect needs rethinking once holdables are actually scoped) |
 | Laser | *Prism Beam* | Beam splits into 3 parallel lines |
 | Gravity | *Singularity* | Pull radius/strength up; pulled enemies take continuous damage while dragged (gives Gravity a real damage identity) |
 
@@ -234,7 +236,7 @@ Unlike Golden/Boss/Devil's Room, this isn't a unique per-level room — it's a f
 - A room that occasionally appears, at a **4% per-level chance**, independent of Devil's Room or boss performance entirely — two separate systems, not one branching one. An Isaac-style counterpart to Devil's Room: no cost, just a clean, high-quality pick, the reward for luck rather than risk.
 - **A real grid room** (unlike Devil's Room) — an *extra* dead-end spur, same shape as Gamble Shrine (§8): not counted in the floor's normal 7-13 room range, reachable through an ordinary door once it happens to roll.
 - **3 options, pick exactly one** — the other two vanish the instant you choose, same rule as Devil's Room. Rolled once the first time you enter (remembered afterward, so leaving and coming back shows the same 3 — no time pressure, no re-roll), until you actually pick one.
-- **Item pool: a curated subset of the existing strong-item pool**, not a new exclusive tier — every current strong item except Heavy Shot (its built-in tradeoff, speed down, sits oddly next to a "clean, no-downside" pick even though Angel Room itself charges nothing separately). Will extend to role items too once the role system (roadmap stage 7) exists, so this room stays interesting after roles land instead of only ever offering stat items.
+- **Item pool: a curated subset of the existing strong-item pool, now including role items**, not a new exclusive tier — every current strong item except Heavy Shot (its built-in tradeoff, speed down, sits oddly next to a "clean, no-downside" pick even though Angel Room itself charges nothing separately) plus the 5 buildable roles (§5) — Laser/Bomb excluded until their own stage lands, same as everywhere else.
 
 ---
 

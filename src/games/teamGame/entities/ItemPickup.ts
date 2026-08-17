@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import type { ItemId, StrongItemId } from '../gameplay/items'
 import { STRONG_ITEMS, getItemColor } from '../gameplay/items'
+import { isRoleId, getRoleColor } from '../gameplay/roles'
 
 const PICKUP_RADIUS = 12
 /** Boost items (incl. Fart) share this one look — genuine mystery among *which* boost you got is still preserved, this is only about telling the category apart from heart/coin/key at a glance. */
@@ -37,6 +38,12 @@ function isStrongItemId(id: ItemId): id is StrongItemId {
 function pickupVisual(itemId: ItemId): { color: number; label: string } {
   if (isStrongItemId(itemId)) {
     return { color: getItemColor(itemId), label: '!' }
+  }
+  // Role items (DESIGN.md §5) are the same "earned reward, visually
+  // identified" tier as strong items, but get their own label ('R' vs '!')
+  // so the two tiers read as different at a glance even before the reveal text.
+  if (isRoleId(itemId)) {
+    return { color: getRoleColor(itemId), label: 'R' }
   }
   if (itemId === 'heart') {
     return { color: HEART_COLOR, label: 'H' }

@@ -17,10 +17,22 @@ import type { FlickerController } from '../gameplay/flicker'
 import { createFlickerController } from '../gameplay/flicker'
 import type { PlayerStats, BoostItemId, StrongItemId } from '../gameplay/items'
 import { createDefaultStats, STAT_ITEMS } from '../gameplay/items'
+import type { RoleId } from '../gameplay/roles'
+import { getRoleColor } from '../gameplay/roles'
 import type { KeyState, PlayerState, Vec2 } from '../net/syncProtocol'
 
 const PLAYER_SIZE = 40
 const GRAY_OUT_ALPHA = 0.3
+/**
+ * Temporary placeholder role tint (DESIGN.md §5) — a colored border around
+ * the player square in the equipped role's color, distinct from the
+ * square's fill (which stays the host/joiner identity color, HOST_COLOR/
+ * JOINER_COLOR from CoopPlayScene, and must not be touched here). Meant to
+ * be checked at a glance alongside the HUD's role text, not a replacement
+ * for it — like everything else colored-rectangle in this project, this is
+ * a stand-in until real sprites exist (DESIGN.md §12).
+ */
+const ROLE_BORDER_WIDTH = 4
 
 export interface PlayerOptions {
   /** Host owns its own LifeState and an Arcade body it moves directly. */
@@ -49,6 +61,8 @@ export default class Player {
   private facingAngle = 0
   /** Room-clear item effects picked up so far this run — see gameplay/items.ts. */
   private stats: PlayerStats = createDefaultStats()
+  /** Single-equip, mutually exclusive with the other 6 roles (DESIGN.md §5) — a separate field from PlayerStats since equipping one doesn't mutate any stat, it just changes what the default projectile carries (see GameSimulation.spawnProjectile's roleEffect). Mirrored on a render-only Player too (see applyReceivedState) so the HUD's role indicator works for a partner as well as the local player. */
+  private currentRole: RoleId | null = null
 
   // Render-only (joiner) only.
   private target: Vec2 | null = null
@@ -156,6 +170,16 @@ export default class Player {
     return this.stats
   }
 
+  /** Role-pickup effect (DESIGN.md §5) — unconditional replace, no migration/refund for anything that specialized around the old role (intentional, matches the settled acquisition rule). */
+  equipRole(role: RoleId) {
+    this.currentRole = role
+    this.syncRoleTint()
+  }
+
+  getCurrentRole(): RoleId | null {
+    return this.currentRole
+  }
+
   /** potatoDamage with Blood Pact's multiplier folded in (1 outside Devil's Room) — use this instead of reading stats.potatoDamage directly anywhere outgoing damage is computed (Buddy stays a deliberate exception, per its own note in GameSimulation). */
   getEffectiveDamage(): number {
     return Math.round(this.stats.potatoDamage * this.stats.devilDamageMultiplier)
@@ -204,6 +228,7 @@ export default class Player {
       maxLives: this.lifeState.maxLives,
       isOut: this.lifeState.isOut,
       isInvincible: isLifeStateInvincible(this.lifeState, now),
+      role: this.currentRole,
     }
   }
 
@@ -223,6 +248,8 @@ export default class Player {
     // simulated-only) — just mirrored so getLives()/getMaxLives() work the
     // same way regardless of which side of the split a Player is on.
     this.lifeState = { ...this.lifeState, lives: state.lives, maxLives: state.maxLives, isOut: state.isOut }
+    this.currentRole = state.role
+    this.syncRoleTint()
     this.renderLifeVisuals(state.isOut, state.isInvincible)
   }
 
@@ -246,6 +273,15 @@ export default class Player {
   }
 
   // ---- Shared ----
+
+  /** See ROLE_BORDER_WIDTH's note — a colored border for the equipped role, cleared entirely (no border) when there isn't one. */
+  private syncRoleTint() {
+    if (this.currentRole) {
+      this.square.setStrokeStyle(ROLE_BORDER_WIDTH, getRoleColor(this.currentRole))
+    } else {
+      this.square.setStrokeStyle(0)
+    }
+  }
 
   private renderLifeVisuals(isOut: boolean, invincible: boolean) {
     if (isOut) {
