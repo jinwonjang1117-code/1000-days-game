@@ -124,6 +124,19 @@ export interface ChestState {
   pos: Vec2
 }
 
+/**
+ * A lingering status zone (DESIGN.md §6's Ice+Gravity ice patch / Poison+Bomb
+ * poison cloud) — same stationary shape as HazardZoneState, just enemy-
+ * targeting/stack-applying instead of player-damaging, and needs `effect` so
+ * the joiner can render the right color (matches entities/StatusZone.ts).
+ */
+export interface StatusZoneState {
+  id: number
+  pos: Vec2
+  radius: number
+  effect: 'slow' | 'poison'
+}
+
 /** One of Devil's Room's 2-3 remaining choices (DESIGN.md §9) — id doubles as the DevilItemId itself (only one of each can ever exist at once), gone from the broadcast once any pedestal is chosen. */
 export interface DevilPedestalState {
   id: DevilItemId
@@ -200,6 +213,8 @@ export interface StateMessage {
   shields: FollowerState[]
   /** Every lingering damage zone currently active in this room (Slime's periodic drop) — room-scoped, not persistent like buddies/shields. */
   hazardZones: HazardZoneState[]
+  /** Every lingering status zone currently active in this room (DESIGN.md §6's ice patch/poison cloud combos) — same room-scoped lifetime as hazardZones, just a separate field since the effect they apply is different from a hazard's direct player damage. */
+  statusZones: StatusZoneState[]
   isGameOver: boolean
   isPaused: boolean
   /** Team-shared, not per-player — see GameSimulation's coinCount field. Nothing spends this yet (roadmap stage 13, the future shop). */
@@ -288,6 +303,19 @@ function isHazardZoneState(value: unknown): value is HazardZoneState {
   }
   const v = value as Record<string, unknown>
   return typeof v.id === 'number' && isVec2(v.pos) && typeof v.radius === 'number'
+}
+
+function isStatusZoneState(value: unknown): value is StatusZoneState {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const v = value as Record<string, unknown>
+  return (
+    typeof v.id === 'number' &&
+    isVec2(v.pos) &&
+    typeof v.radius === 'number' &&
+    (v.effect === 'slow' || v.effect === 'poison')
+  )
 }
 
 function isChestState(value: unknown): value is ChestState {
@@ -418,6 +446,8 @@ export function isStateMessage(data: unknown): data is StateMessage {
     v.shields.every(isFollowerState) &&
     Array.isArray(v.hazardZones) &&
     v.hazardZones.every(isHazardZoneState) &&
+    Array.isArray(v.statusZones) &&
+    v.statusZones.every(isStatusZoneState) &&
     typeof v.isGameOver === 'boolean' &&
     typeof v.isPaused === 'boolean' &&
     typeof v.coins === 'number' &&

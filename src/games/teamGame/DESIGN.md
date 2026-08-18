@@ -18,7 +18,11 @@ Any item that deliberately opts out (e.g. Buddy's damage is fixed and does *not*
 
 A 2-player online co-op roguelike inspired by The Binding of Isaac. One player hosts, the other joins via a short room code. Both players share the same screen/room at all times (not separate explorable areas). Runs are randomized and replayable: randomized role drops, randomized room enemy composition, and mechanical synergies between seven roles.
 
-**Theme:** Two apprentice mages pulled into a dungeon that reshuffles itself. Their magic is unstable and can affect each other (explains Bomb's friendly-fire risk as a world rule, not just a balance quirk).
+**Theme:** Two partners (a couple), held captive at the bottom of a vast magical prison. The prison suppresses their real power — the reason every run starts on nothing but a weak default attack isn't arbitrary difficulty tuning, it's the place stripping them down — and it actively rebuilds/reshuffles itself level by level to keep them from escaping. Strong items and roles found along the way are fragments of their real magic, reclaimed as they fight upward. Their magic is unstable as a result of this (explains Bomb's friendly-fire risk as a world rule, not just a balance quirk).
+
+**The goal is to escape**: fight up through the prison's levels toward the surface. Level 10's final destination is a literal recreation of their own home's living room (couches, coffee table, TV) — the ordinary world they're trying to get back to, deliberately the biggest possible tonal contrast to everything before it. Who or what actually runs the prison is intentionally undefined for now, pending a real boss-design pass — the antagonist doesn't need a face yet, and might not need one at all.
+
+Flavor implications for existing systems, not yet formally written into their own sections below (revisit once the antagonist question settles): Golden Room reads as a vault of stolen power; Devil's Room as a dark bargain offered by something in the prison; Angel Room as a stroke of luck/mercy; each level's mini-boss as a warden guarding the way up.
 
 ---
 
@@ -88,20 +92,20 @@ Roles are **found, not chosen up front.** A role is a single-equip item, mechani
 
 ---
 
-## 6. Synergy / Combo System
+## 6. Synergy / Combo System (5 of 8 built)
 
-Status effects exist as shared world-state — **any player's ability can trigger a combo off a status the other player applied**, not just their own.
+Status effects exist as shared world-state — **any player's ability can trigger a combo off a status the other player applied**, not just their own. Not every one of the 21 possible role pairs gets bespoke code — most (e.g. Glue+Poison) already combo for free today, since status effects live independently per-enemy with no interaction needed. This section is only the marquee list that got real code.
 
 | Combo | Effect |
 |---|---|
-| Ice + Electric | Frozen enemies take bonus chain damage and shatter (small AoE) on kill |
-| Ice + Glue | Glued (slowed) enemies have a higher freeze chance |
-| Ice + Gravity | Frozen enemies pulled by Gravity leave a brief slowing ice patch |
-| Poison + Bomb | A poisoned enemy killed inside a Bomb blast releases its poison as a cloud |
-| Gravity + Laser | Gravity clusters enemies right before a Laser sweep — marquee "setup + payoff" combo |
-| Gravity + Bomb | Pulling enemies into your own Bomb blast — pulls them toward you too (risk/reward) |
-| Poison + Electric | Chain damage on a poisoned enemy has a chance to spread the poison to the chain target |
-| **Electric + Bomb** | ⚠️ Stale — was "Electric can detonate a live bomb early," but Bomb no longer has a fuse to detonate (it explodes on contact, §5). Needs a new idea once combos are actually scoped (Stage 8), or retiring outright |
+| **Ice + Electric** (built) | A chain hop (§5) landing on a frozen enemy deals 1.5x damage and *always* triggers a small shatter AoE (60px, hits nearby enemies) — not gated on a kill, unlike the original draft; only Electric's chain hits trigger this, not the origin contact hit or any other role |
+| **Ice + Glue** (built) | A slowed enemy has a boosted 55% freeze chance (up from the base 30%) |
+| **Ice + Gravity** (built) | A frozen enemy actively being pulled by Gravity periodically (every 1s) leaves a slowing ice patch (50px, 2.5s) at its position — required relaxing Gravity's pull to affect frozen enemies at all, see §5 |
+| **Poison + Bomb** (built) | A poisoned enemy killed inside a Bomb blast releases a poison cloud (60px, 3s) at its death position |
+| **Poison + Electric** (built) | Each chain hop has a 40% chance to spread a poison stack from the enemy it's arcing *from* onto the new target, if that source enemy was poisoned |
+| Gravity + Laser | Gravity clusters enemies right before a Laser sweep — marquee "setup + payoff" combo. Blocked on Laser (§5, not yet built) |
+| Gravity + Bomb | **Retired — naturally synergistic, no bespoke code.** Gravity already clusters enemies today; that's synergy enough with anyone's blast on its own, no special mechanic needed |
+| **Electric + Bomb** | ⚠️ Stale — was "Electric can detonate a live bomb early," but Bomb no longer has a fuse to detonate (it explodes on contact, §5). Still needs a new idea or formal retirement — untouched by the Stage 8 build |
 
 Not every one of the 21 possible role pairs needs a bespoke effect — a handful of marquee combos plus "naturally synergistic" for the rest is healthier scope than hand-designing all 21.
 
@@ -255,7 +259,7 @@ Unlike Golden/Boss/Devil's Room, this isn't a unique per-level room — it's a f
 |---|---|
 | Erratic | Ignores players entirely — periodically retargets to a random direction *and* random speed (50-100% of base). Hard to lead shots against; deliberately not tanky, since the difficulty is dodging it, not surviving it. |
 | Charger | Idle until a player is within range, then telegraphs (brief pause + tint) before committing to a straight-line dash at high speed toward wherever they were standing — doesn't re-track mid-dash. Punishes standing still. |
-| Summoner | Keeps its distance like a Ranged shooter but never attacks directly — periodically spawns a random pick from its summon pool near itself, regardless of player proximity (Weak: just Weak Swarmer; Strong: Weak Swarmer *or* Weak Moving Shooter, mixing real ranged pressure into the filler). Has to be prioritized or the room snowballs. |
+| Summoner | Keeps its distance like a Ranged shooter but never attacks directly — periodically spawns a random pick from its summon pool near itself, regardless of player proximity (Weak: just Weak Swarmer; Strong: Weak Swarmer *or* Weak Moving Shooter, mixing real ranged pressure into the filler). Drifts with a calm idle wander while not retreating, rather than standing dead still like a planted turret. Has to be prioritized or the room snowballs. |
 | Spread Shooter | A Ranged shooter variant whose shot is a multi-projectile fan instead of one, mirroring the player's own Multi Shot spread math. Covers an arc, not a line. |
 | Berserker | A plain melee chaser until health drops to/below half, at which point its speed jumps and it stays visibly tinted for the rest of the fight. Punishes slow chip damage. |
 | Slime | A slow melee chaser that, while alive, periodically drops a lingering damage zone at its current position (a few seconds, then it fades). Death itself is just a normal death — the hazard is a while-alive mechanic, not an on-death one. Real area denial through a doorway or chokepoint. |

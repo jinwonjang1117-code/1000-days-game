@@ -11,6 +11,7 @@ import type {
   ItemPickupState,
   FollowerState,
   HazardZoneState,
+  StatusZoneState,
   ChestState,
   DevilPedestalState,
 } from '../net/syncProtocol'
@@ -22,6 +23,7 @@ import ItemPickup from '../entities/ItemPickup'
 import Buddy from '../entities/Buddy'
 import OrbitingShield from '../entities/OrbitingShield'
 import HazardZone from '../entities/HazardZone'
+import StatusZone from '../entities/StatusZone'
 import Chest from '../entities/Chest'
 import GambleShrine from '../entities/GambleShrine'
 import DevilPedestal from '../entities/DevilPedestal'
@@ -29,6 +31,8 @@ import type { DevilItemId } from '../gameplay/devilItems'
 import { ARCHETYPES } from '../gameplay/enemyArchetypes'
 import { getItemLabel } from '../gameplay/items'
 import type { RoleId } from '../gameplay/roles'
+import type { ShadowController } from '../gameplay/shadow'
+import { createShadow } from '../gameplay/shadow'
 import type { Direction, RoomCoord } from '../rooms/floorLayout'
 import { getRoomDefinition, hasNeighbor, coordsEqual } from '../rooms/floorLayout'
 import type { MiniMapRoomInfo } from '../ui/MiniMap'
@@ -115,10 +119,14 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
   private buddies: Map<number, Buddy> = new Map()
   private shields: Map<number, OrbitingShield> = new Map()
   private hazardZones: Map<number, HazardZone> = new Map()
+  /** DESIGN.md §6's ice patch/poison cloud combos — same room-scoped, no-interpolation shape as hazardZones. */
+  private statusZones: Map<number, StatusZone> = new Map()
   private chests: Map<number, Chest> = new Map()
   private devilPedestals: Map<DevilItemId, DevilPedestal> = new Map()
   /** Purely visual — redrawn from floorRoomEntries whenever currentRoomCoord changes (see reconcileRoomObstacles). No physics: the joiner never locally simulates collision to begin with. */
   private roomObstacleGraphics: Phaser.GameObjects.Rectangle[] = []
+  /** One entry per rock in roomObstacleGraphics (water doesn't get one, same reasoning as the host side) — kept as a parallel array rather than folded into roomObstacleGraphics since only some obstacles have a shadow. */
+  private roomObstacleShadows: ShadowController[] = []
   /** Purely visual, like roomObstacleGraphics — redrawn from floorRoomEntries whenever currentRoomCoord changes (see drawGambleShrine). No dynamic broadcast state (unlike Chest): the shrine never disappears mid-visit, so isGamble + chestAnchor alone are enough to know whether/where to draw it. */
   private gambleShrine: GambleShrine | null = null
 
@@ -166,12 +174,16 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     this.shields.clear()
     this.hazardZones.forEach((zone) => zone.destroy())
     this.hazardZones.clear()
+    this.statusZones.forEach((zone) => zone.destroy())
+    this.statusZones.clear()
     this.chests.forEach((chest) => chest.destroy())
     this.chests.clear()
     this.devilPedestals.forEach((pedestal) => pedestal.destroy())
     this.devilPedestals.clear()
     this.roomObstacleGraphics.forEach((rect) => rect.destroy())
     this.roomObstacleGraphics = []
+    this.roomObstacleShadows.forEach((shadow) => shadow.destroy())
+    this.roomObstacleShadows = []
     this.gambleShrine?.destroy()
     this.gambleShrine = null
     this.currentRoomCoord = ORIGIN_COORD
@@ -212,12 +224,16 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
       this.shields.clear()
       this.hazardZones.forEach((zone) => zone.destroy())
       this.hazardZones.clear()
+      this.statusZones.forEach((zone) => zone.destroy())
+      this.statusZones.clear()
       this.chests.forEach((chest) => chest.destroy())
       this.chests.clear()
       this.devilPedestals.forEach((pedestal) => pedestal.destroy())
       this.devilPedestals.clear()
       this.roomObstacleGraphics.forEach((rect) => rect.destroy())
       this.roomObstacleGraphics = []
+      this.roomObstacleShadows.forEach((shadow) => shadow.destroy())
+      this.roomObstacleShadows = []
       this.gambleShrine?.destroy()
       this.gambleShrine = null
     })
@@ -517,6 +533,7 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
       this.reconcileBuddies(data.buddies)
       this.reconcileShields(data.shields)
       this.reconcileHazardZones(data.hazardZones)
+      this.reconcileStatusZones(data.statusZones)
       this.reconcileChests(data.chests)
       this.reconcileDevilPedestals(data.devilPedestals)
       this.exploredRooms = data.exploredRooms
@@ -705,6 +722,27 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     }
   }
 
+  /** Joiner-only: same create/destroy-on-presence reconciliation as reconcileHazardZones — DESIGN.md §6's ice patch/poison cloud combos, purely visual on this side (color-coded by effect, see StatusZone). */
+  private reconcileStatusZones(received: StatusZoneState[]) {
+    const receivedIds = new Set(received.map((zone) => zone.id))
+
+    for (const [id, zone] of this.statusZones) {
+      if (!receivedIds.has(id)) {
+        zone.destroy()
+        this.statusZones.delete(id)
+      }
+    }
+
+    for (const state of received) {
+      if (!this.statusZones.has(state.id)) {
+        this.statusZones.set(
+          state.id,
+          new StatusZone(this, state.id, state.effect, state.pos.x, state.pos.y, state.radius, { simulated: false }),
+        )
+      }
+    }
+  }
+
   /** Joiner-only: same create/destroy-on-presence reconciliation as reconcileHazardZones — at most one entry, but shares the same array-based reconciliation shape as everything else rather than special-casing a single nullable field. */
   private reconcileChests(received: ChestState[]) {
     const receivedIds = new Set(received.map((chest) => chest.id))
@@ -787,21 +825,22 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
   private drawRoomObstacles() {
     this.roomObstacleGraphics.forEach((rect) => rect.destroy())
     this.roomObstacleGraphics = []
+    this.roomObstacleShadows.forEach((shadow) => shadow.destroy())
+    this.roomObstacleShadows = []
 
     const room = getRoomDefinition(this.floorRoomEntries, this.currentRoomCoord)
     room?.obstacles.forEach((obstacle) => {
       const color = obstacle.type === 'rock' ? ROCK_COLOR : WATER_COLOR
       const alpha = obstacle.type === 'rock' ? 1 : 0.6
-      this.roomObstacleGraphics.push(
-        this.add.rectangle(
-          obstacle.x + obstacle.width / 2,
-          obstacle.y + obstacle.height / 2,
-          obstacle.width,
-          obstacle.height,
-          color,
-          alpha,
-        ),
-      )
+      const centerX = obstacle.x + obstacle.width / 2
+      const centerY = obstacle.y + obstacle.height / 2
+      // Only rock pillars are raised off the ground — same reasoning as the host side.
+      if (obstacle.type === 'rock') {
+        const shadow = createShadow(this, Math.max(obstacle.width, obstacle.height))
+        shadow.setPosition(centerX, centerY)
+        this.roomObstacleShadows.push(shadow)
+      }
+      this.roomObstacleGraphics.push(this.add.rectangle(centerX, centerY, obstacle.width, obstacle.height, color, alpha))
     })
   }
 

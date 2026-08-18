@@ -65,6 +65,8 @@ export interface EnemyArchetype {
   enrage?: { healthThreshold: number; speedMultiplier: number }
   /** While alive, periodically drops a lingering damage zone at its current position (see Enemy.tryDropHazardAt / GameSimulation.spawnHazardZone) — not on death. */
   hazard?: { radius: number; durationMs: number; intervalMs: number }
+  /** 'keepDistance' only — instead of standing dead still while not retreating, drifts with the same calm idle-wander shape 'charge' already uses while waiting for a trigger (see Enemy.updateMovement). Opt-in per archetype, not a blanket change to keepDistance — Ranged/Spread Shooter stay planted turrets. */
+  idleWander?: boolean
 }
 
 interface BaseStats {
@@ -80,6 +82,7 @@ interface BaseStats {
   summons?: { archetypes: ArchetypeId[]; intervalMs: number }
   enrage?: { healthThreshold: number; speedMultiplier: number }
   hazard?: { radius: number; durationMs: number; intervalMs: number }
+  idleWander?: boolean
 }
 
 const BASE_STATS: Record<ArchetypeCategory, BaseStats> = {
@@ -172,6 +175,10 @@ const BASE_STATS: Record<ArchetypeCategory, BaseStats> = {
     color: 0xaa44ff,
     movement: 'keepDistance',
     summons: { archetypes: ['swarmerWeak'], intervalMs: 4500 },
+    // Reads as too statue-like standing dead still between retreats —
+    // a calm idle drift (opt-in, not a blanket keepDistance change) sells
+    // "restlessly summoning" better than a planted turret does.
+    idleWander: true,
   },
   // "Covers an arc, not a line" — a Ranged shooter variant whose shot is a
   // 3-projectile fan instead of one, mirroring the player's own Multi Shot
@@ -253,6 +260,7 @@ function buildArchetype(category: ArchetypeCategory, tier: ArchetypeTier): Enemy
           intervalMs: Math.round(base.hazard.intervalMs * scale.fireRate),
         }
       : undefined,
+    idleWander: base.idleWander,
   }
 }
 

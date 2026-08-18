@@ -1,6 +1,8 @@
 import Phaser from 'phaser'
 import type { DevilItemId } from '../gameplay/devilItems'
 import { DEVIL_ITEMS } from '../gameplay/devilItems'
+import type { ShadowController } from '../gameplay/shadow'
+import { createShadow } from '../gameplay/shadow'
 
 const PEDESTAL_SIZE = 32
 const LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -24,9 +26,12 @@ export default class DevilPedestal {
   readonly id: DevilItemId
   readonly shape: Phaser.GameObjects.Rectangle
   private readonly label: Phaser.GameObjects.Text
+  private readonly shadow: ShadowController
 
   constructor(scene: Phaser.Scene, id: DevilItemId, x: number, y: number, options: DevilPedestalOptions) {
     this.id = id
+    this.shadow = createShadow(scene, PEDESTAL_SIZE)
+    this.shadow.setPosition(x, y)
     this.shape = scene.add.rectangle(x, y, PEDESTAL_SIZE, PEDESTAL_SIZE, DEVIL_ITEMS[id].color)
     this.label = scene.add.text(x, y, '!', LABEL_STYLE).setOrigin(0.5)
 
@@ -47,5 +52,6 @@ export default class DevilPedestal {
   destroy() {
     this.shape.destroy()
     this.label.destroy()
+    this.shadow.destroy()
   }
 }

@@ -11,7 +11,10 @@ import {
   POISON_TICK_INTERVAL_MS,
   POISON_MAX_STACKS,
   POISON_STACK_DURATION_MS,
+  ICE_PATCH_DROP_INTERVAL_MS,
 } from '../gameplay/roles'
+import type { ShadowController } from '../gameplay/shadow'
+import { createShadow } from '../gameplay/shadow'
 
 const ENEMY_HIT_FLASH_COLOR = 0xffffff
 const ENEMY_HIT_FLASH_MS = 80
@@ -31,10 +34,16 @@ const ERRATIC_RETARGET_MIN_MS = 300
 const ERRATIC_RETARGET_MAX_MS = 1000
 /** Erratic's per-retarget speed is randomized down to this fraction of its base speed, at most its full base speed. */
 const ERRATIC_MIN_SPEED_FRACTION = 0.3
-/** Charger's idle wander — calmer/slower than Erratic's retargeting (that's deliberately jittery for dodge-difficulty; this is just so it doesn't read as a frozen statue while it hasn't detected a player). */
-const CHARGER_IDLE_RETARGET_MIN_MS = 1200
-const CHARGER_IDLE_RETARGET_MAX_MS = 2400
-const CHARGER_IDLE_SPEED_FRACTION = 0.35
+/**
+ * Calm idle wander — calmer/slower than Erratic's retargeting (that's
+ * deliberately jittery for dodge-difficulty; this is just so an archetype
+ * doesn't read as a frozen statue while otherwise not acting). Originally
+ * Charger-only (waiting for a trigger); also drives 'keepDistance'
+ * archetypes with idleWander set (e.g. Summoner) while not retreating.
+ */
+const IDLE_WANDER_RETARGET_MIN_MS = 1200
+const IDLE_WANDER_RETARGET_MAX_MS = 2400
+const IDLE_WANDER_SPEED_FRACTION = 0.35
 
 const HEALTH_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -63,6 +72,7 @@ export default class Enemy {
   readonly archetype: EnemyArchetype
   readonly countsForClear: boolean
   readonly square: Phaser.GameObjects.Rectangle
+  private readonly shadow: ShadowController
   private readonly healthText: Phaser.GameObjects.Text
   private readonly body: Phaser.Physics.Arcade.Body | null
   private readonly healthTextOffset: number
@@ -72,6 +82,8 @@ export default class Enemy {
   private attackState: AttackState = createAttackState()
   private summonState: AttackState = createAttackState()
   private hazardDropState: AttackState = createAttackState()
+  /** Ice+Gravity combo (DESIGN.md §6) — throttles the ice-patch drop, see tryDropIcePatchAt. */
+  private icePatchDropState: AttackState = createAttackState()
   /** 'erratic' movement and 'charge's idle wander — next time it picks a fresh random direction/speed. Starts at 0 so the very first frame retargets immediately. */
   private nextWanderRetargetAt = 0
   /** 'charge' movement only — see updateCharge. */
@@ -115,6 +127,8 @@ export default class Enemy {
     this.health = archetype.maxHealth
     this.healthTextOffset = archetype.size / 2 + HEALTH_TEXT_OFFSET_BASE
 
+    this.shadow = createShadow(scene, archetype.size)
+    this.shadow.setPosition(x, y)
     this.square = scene.add.rectangle(x, y, archetype.size, archetype.size, archetype.color)
     this.healthText = scene.add
       .text(x, y - this.healthTextOffset, `HP ${archetype.maxHealth}`, HEALTH_TEXT_STYLE)
@@ -214,13 +228,21 @@ export default class Enemy {
     }
 
     // 'keepDistance': back away once a player gets within half the firing
-    // range, otherwise hold position.
+    // range, otherwise hold position — or, for archetypes with idleWander
+    // set (Summoner), drift calmly instead of standing dead still.
     const retreatDistance = (this.archetype.ranged?.range ?? 300) / 1.5
     const distance = Phaser.Math.Distance.Between(this.x, this.y, nearestPlayerPos.x, nearestPlayerPos.y)
     if (distance < retreatDistance) {
       const speed = this.effectiveSpeed(now)
       const angle = Math.atan2(this.y - nearestPlayerPos.y, this.x - nearestPlayerPos.x)
       this.body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed)
+    } else if (this.archetype.idleWander) {
+      if (now >= this.nextWanderRetargetAt) {
+        const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
+        const wanderSpeed = this.effectiveSpeed(now) * IDLE_WANDER_SPEED_FRACTION
+        this.body.setVelocity(Math.cos(angle) * wanderSpeed, Math.sin(angle) * wanderSpeed)
+        this.nextWanderRetargetAt = now + Phaser.Math.Between(IDLE_WANDER_RETARGET_MIN_MS, IDLE_WANDER_RETARGET_MAX_MS)
+      }
     } else {
       this.body.setVelocity(0, 0)
     }
@@ -228,7 +250,7 @@ export default class Enemy {
 
   /**
    * 'charge' movement's state machine: idle (subtle wander, same retarget
-   * shape as 'erratic' but calmer — see CHARGER_IDLE_* — until a player is
+   * shape as 'erratic' but calmer — see IDLE_WANDER_* — until a player is
    * within triggerRange) -> telegraphing (stopped, tinted, direction
    * locked in now — not re-aimed later) -> dashing (committed straight
    * line at dashSpeed) -> cooldown (stopped) -> back to idle.
@@ -242,9 +264,9 @@ export default class Enemy {
     if (this.chargeState === 'idle') {
       if (now >= this.nextWanderRetargetAt) {
         const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
-        const wanderSpeed = this.archetype.speed * CHARGER_IDLE_SPEED_FRACTION
+        const wanderSpeed = this.archetype.speed * IDLE_WANDER_SPEED_FRACTION
         this.body.setVelocity(Math.cos(angle) * wanderSpeed, Math.sin(angle) * wanderSpeed)
-        this.nextWanderRetargetAt = now + Phaser.Math.Between(CHARGER_IDLE_RETARGET_MIN_MS, CHARGER_IDLE_RETARGET_MAX_MS)
+        this.nextWanderRetargetAt = now + Phaser.Math.Between(IDLE_WANDER_RETARGET_MIN_MS, IDLE_WANDER_RETARGET_MAX_MS)
       }
       if (!nearestPlayerPos) {
         return
@@ -346,6 +368,16 @@ export default class Enemy {
     return Math.max(0, 1 - activeStacks * GLUE_SLOW_PER_STACK)
   }
 
+  /** DESIGN.md §6's Ice+Glue combo needs to check this host-side at hit time — the mirrored `slowStacks` field is only refreshed once/frame for the joiner's benefit, so this filters live instead, same reasoning as slowMultiplier. */
+  isSlowed(now: number): boolean {
+    return this.slowStackExpirations.some((expiresAt) => expiresAt > now)
+  }
+
+  /** DESIGN.md §6's Poison+Bomb/Poison+Electric combos need this host-side at hit/kill time — same live-filter reasoning as isSlowed. */
+  isPoisoned(now: number): boolean {
+    return this.poisonStackExpirations.some((expiresAt) => expiresAt > now)
+  }
+
   /**
    * Call once per frame (host only) — expires stacks whose timers have run
    * out and ticks Poison damage. Returns true if this tick brought health
@@ -370,15 +402,28 @@ export default class Enemy {
    * Gravity — an additive per-frame velocity nudge toward (towardX, towardY)
    * on top of whatever updateMovement already set this frame, called from
    * GameSimulation.update's projectile loop for every in-flight Gravity
-   * shot. No-ops on a frozen enemy — it's already fully stopped by Ice, and
-   * pulling it anyway would silently break that guarantee.
+   * shot. DESIGN.md §6's Ice+Gravity combo needs this to also affect a
+   * frozen enemy — deliberately allowed (no isFrozen guard here anymore):
+   * freeze's full stop is re-enforced *fresh* every frame in updateMovement,
+   * which runs before this pull pass, so a nudge added here doesn't break
+   * "can't act" — it just causes a slow per-frame drag toward the puller
+   * across many frames, not a contradiction.
    */
-  applyGravityPull(now: number, towardX: number, towardY: number, strength: number) {
-    if (!this.body || this.isFrozen(now)) {
+  applyGravityPull(towardX: number, towardY: number, strength: number) {
+    if (!this.body) {
       return
     }
     const angle = Math.atan2(towardY - this.y, towardX - this.x)
     this.body.setVelocity(this.body.velocity.x + Math.cos(angle) * strength, this.body.velocity.y + Math.sin(angle) * strength)
+  }
+
+  /** DESIGN.md §6's Ice+Gravity combo — call only while this enemy is both frozen and actively being pulled; throttles the ice-patch drop to once per ICE_PATCH_DROP_INTERVAL_MS instead of every single frame it qualifies. Doesn't check frozen itself, same shape as tryDropHazardAt not checking its own trigger condition — the caller (GameSimulation.update's gravity-pull pass) already gates on isFrozen. */
+  tryDropIcePatchAt(now: number): boolean {
+    if (!canFire(this.icePatchDropState, now, ICE_PATCH_DROP_INTERVAL_MS)) {
+      return false
+    }
+    this.icePatchDropState = recordFire(this.icePatchDropState, now)
+    return true
   }
 
   /** Ranged archetypes only. Returns fire angles (more than one for a Spread Shooter's fan) if in range and off cooldown, else null. */
@@ -471,6 +516,7 @@ export default class Enemy {
     this.frozen = this.isFrozen(now)
     this.slowStacks = this.slowStackExpirations.length
     this.poisonStacks = this.poisonStackExpirations.length
+    this.shadow.setPosition(this.square.x, this.square.y)
     this.syncHealthLabel()
     this.syncTint()
   }
@@ -480,6 +526,7 @@ export default class Enemy {
   applyReceivedState(state: EnemyState) {
     if (!this.target) {
       this.square.setPosition(state.pos.x, state.pos.y)
+      this.shadow.setPosition(state.pos.x, state.pos.y)
     }
     this.target = state.pos
     this.health = state.health
@@ -498,6 +545,7 @@ export default class Enemy {
     }
     this.square.x = Phaser.Math.Linear(this.square.x, this.target.x, t)
     this.square.y = Phaser.Math.Linear(this.square.y, this.target.y, t)
+    this.shadow.setPosition(this.square.x, this.square.y)
     this.syncHealthLabel()
   }
 
@@ -555,5 +603,6 @@ export default class Enemy {
   destroy() {
     this.square.destroy()
     this.healthText.destroy()
+    this.shadow.destroy()
   }
 }

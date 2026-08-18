@@ -123,3 +123,27 @@ export const GRAVITY_PULL_STRENGTH = 60
  * any other shot, no explosion.
  */
 export const BOMB_BLAST_RADIUS = 100
+
+// ---- Combo tuning (DESIGN.md §6, first-pass, tune freely) ----
+
+/** Ice+Glue: a slowed enemy is easier to freeze — up from the base ICE_FREEZE_CHANCE. */
+export const ICE_GLUE_COMBO_FREEZE_CHANCE = 0.55
+
+/** Poison+Electric: a chain hop has this chance to also spread a poison stack from the enemy it just arced *from* onto the new target, if that source enemy was poisoned. */
+export const POISON_ELECTRIC_SPREAD_CHANCE = 0.4
+
+/** Ice+Electric: a chain hop against a frozen target deals this much bonus damage and always (not just on kill) triggers a small shatter AoE — see GameSimulation.applyShatterAoE. */
+export const ICE_ELECTRIC_DAMAGE_MULTIPLIER = 1.5
+export const SHATTER_RADIUS = 60
+
+/** Ice+Gravity: a frozen enemy actively being pulled periodically leaves a brief slowing ice patch (a StatusZone) — see Enemy.tryDropIcePatchAt/GameSimulation's gravity-pull pass. */
+export const ICE_PATCH_RADIUS = 50
+export const ICE_PATCH_DURATION_MS = 2500
+export const ICE_PATCH_DROP_INTERVAL_MS = 1000
+
+/** Poison+Bomb: a poisoned enemy killed inside a Bomb blast releases a poison cloud (a StatusZone) at its death position — see GameSimulation.applyBombExplosion. */
+export const POISON_CLOUD_RADIUS = 60
+export const POISON_CLOUD_DURATION_MS = 3000
+
+/** Shared re-stack throttle for both StatusZone effect types — without this, an enemy loitering in either zone would stack up far faster than a normal hit-by-hit application ever could. */
+export const STATUS_ZONE_REAPPLY_INTERVAL_MS = 800

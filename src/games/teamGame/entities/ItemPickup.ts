@@ -2,6 +2,8 @@ import Phaser from 'phaser'
 import type { ItemId, StrongItemId } from '../gameplay/items'
 import { STRONG_ITEMS, getItemColor } from '../gameplay/items'
 import { isRoleId, getRoleColor } from '../gameplay/roles'
+import type { ShadowController } from '../gameplay/shadow'
+import { createShadow } from '../gameplay/shadow'
 
 const PICKUP_RADIUS = 12
 /** Boost items (incl. Fart) share this one look — genuine mystery among *which* boost you got is still preserved, this is only about telling the category apart from heart/coin/key at a glance. */
@@ -77,12 +79,15 @@ export default class ItemPickup {
   readonly itemId: ItemId
   readonly shape: Phaser.GameObjects.Arc
   private readonly label: Phaser.GameObjects.Text
+  private readonly shadow: ShadowController
 
   constructor(scene: Phaser.Scene, id: number, itemId: ItemId, x: number, y: number, options: ItemPickupOptions) {
     this.id = id
     this.itemId = itemId
 
     const { color, label } = pickupVisual(itemId)
+    this.shadow = createShadow(scene, PICKUP_RADIUS * 2)
+    this.shadow.setPosition(x, y)
     this.shape = scene.add.circle(x, y, PICKUP_RADIUS, color)
     this.label = scene.add.text(x, y, label, LABEL_STYLE).setOrigin(0.5)
 
@@ -103,5 +108,6 @@ export default class ItemPickup {
   destroy() {
     this.shape.destroy()
     this.label.destroy()
+    this.shadow.destroy()
   }
 }

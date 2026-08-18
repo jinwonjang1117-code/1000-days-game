@@ -1,4 +1,6 @@
 import Phaser from 'phaser'
+import type { ShadowController } from '../gameplay/shadow'
+import { createShadow } from '../gameplay/shadow'
 
 const CHEST_SIZE = 32
 const CHEST_COLOR = 0xaa7733
@@ -27,9 +29,12 @@ export default class Chest {
   readonly id: number
   readonly shape: Phaser.GameObjects.Rectangle
   private readonly label: Phaser.GameObjects.Text
+  private readonly shadow: ShadowController
 
   constructor(scene: Phaser.Scene, id: number, x: number, y: number, options: ChestOptions) {
     this.id = id
+    this.shadow = createShadow(scene, CHEST_SIZE)
+    this.shadow.setPosition(x, y)
     this.shape = scene.add.rectangle(x, y, CHEST_SIZE, CHEST_SIZE, CHEST_COLOR)
     this.label = scene.add.text(x, y, 'C', LABEL_STYLE).setOrigin(0.5)
 
@@ -50,5 +55,6 @@ export default class Chest {
   destroy() {
     this.shape.destroy()
     this.label.destroy()
+    this.shadow.destroy()
   }
 }

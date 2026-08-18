@@ -1,4 +1,6 @@
 import Phaser from 'phaser'
+import type { ShadowController } from '../gameplay/shadow'
+import { createShadow } from '../gameplay/shadow'
 
 const SHRINE_SIZE = 32
 const SHRINE_COLOR = 0x9933cc
@@ -27,8 +29,11 @@ export interface GambleShrineOptions {
 export default class GambleShrine {
   readonly shape: Phaser.GameObjects.Rectangle
   private readonly label: Phaser.GameObjects.Text
+  private readonly shadow: ShadowController
 
   constructor(scene: Phaser.Scene, x: number, y: number, options: GambleShrineOptions) {
+    this.shadow = createShadow(scene, SHRINE_SIZE)
+    this.shadow.setPosition(x, y)
     this.shape = scene.add.rectangle(x, y, SHRINE_SIZE, SHRINE_SIZE, SHRINE_COLOR)
     this.label = scene.add.text(x, y, 'G', LABEL_STYLE).setOrigin(0.5)
 
@@ -49,5 +54,6 @@ export default class GambleShrine {
   destroy() {
     this.shape.destroy()
     this.label.destroy()
+    this.shadow.destroy()
   }
 }

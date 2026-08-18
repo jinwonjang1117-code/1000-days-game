@@ -19,6 +19,8 @@ import type { PlayerStats, BoostItemId, StrongItemId } from '../gameplay/items'
 import { createDefaultStats, STAT_ITEMS } from '../gameplay/items'
 import type { RoleId } from '../gameplay/roles'
 import { getRoleColor } from '../gameplay/roles'
+import type { ShadowController } from '../gameplay/shadow'
+import { createShadow } from '../gameplay/shadow'
 import type { KeyState, PlayerState, Vec2 } from '../net/syncProtocol'
 
 const PLAYER_SIZE = 40
@@ -51,6 +53,7 @@ export interface PlayerOptions {
  */
 export default class Player {
   readonly square: Phaser.GameObjects.Rectangle
+  private readonly shadow: ShadowController
   private readonly flicker: FlickerController
   private readonly body: Phaser.Physics.Arcade.Body | null
 
@@ -68,6 +71,8 @@ export default class Player {
   private target: Vec2 | null = null
 
   constructor(scene: Phaser.Scene, x: number, y: number, color: number, options: PlayerOptions) {
+    this.shadow = createShadow(scene, PLAYER_SIZE)
+    this.shadow.setPosition(x, y)
     this.square = scene.add.rectangle(x, y, PLAYER_SIZE, PLAYER_SIZE, color)
 
     if (options.simulated) {
@@ -209,6 +214,7 @@ export default class Player {
     }
     this.square.setPosition(x, y)
     this.body.setVelocity(0, 0)
+    this.shadow.setPosition(x, y)
   }
 
   /** Returns true (and starts cooldown) if firing is currently allowed. No-ops while out. */
@@ -234,6 +240,7 @@ export default class Player {
 
   /** Call every frame — invincibility can expire without any event to trigger a refresh. */
   refreshVisuals(now: number) {
+    this.shadow.setPosition(this.square.x, this.square.y)
     this.renderLifeVisuals(this.lifeState.isOut, isLifeStateInvincible(this.lifeState, now))
   }
 
@@ -242,6 +249,7 @@ export default class Player {
   applyReceivedState(state: PlayerState) {
     if (!this.target) {
       this.square.setPosition(state.pos.x, state.pos.y)
+      this.shadow.setPosition(state.pos.x, state.pos.y)
     }
     this.target = state.pos
     // Not otherwise touched on this side (applyHit/grantLife etc. are
@@ -270,6 +278,7 @@ export default class Player {
     }
     this.square.x = Phaser.Math.Linear(this.square.x, this.target.x, t)
     this.square.y = Phaser.Math.Linear(this.square.y, this.target.y, t)
+    this.shadow.setPosition(this.square.x, this.square.y)
   }
 
   // ---- Shared ----
@@ -298,5 +307,6 @@ export default class Player {
 
   destroy() {
     this.square.destroy()
+    this.shadow.destroy()
   }
 }

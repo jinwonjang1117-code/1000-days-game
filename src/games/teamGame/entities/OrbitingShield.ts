@@ -1,5 +1,7 @@
 import Phaser from 'phaser'
 import type { Vec2 } from '../net/syncProtocol'
+import type { ShadowController } from '../gameplay/shadow'
+import { createShadow } from '../gameplay/shadow'
 
 const SHIELD_RADIUS = 10
 const SHIELD_COLOR = 0x99ccff
@@ -25,6 +27,7 @@ export interface OrbitingShieldOptions {
 export default class OrbitingShield {
   readonly id: number
   readonly shape: Phaser.GameObjects.Arc
+  private readonly shadow: ShadowController
   private readonly body: Phaser.Physics.Arcade.Body | null
 
   // Simulated (host) only — per-enemy contact-damage cooldown, since Arcade
@@ -36,6 +39,8 @@ export default class OrbitingShield {
 
   constructor(scene: Phaser.Scene, id: number, x: number, y: number, options: OrbitingShieldOptions) {
     this.id = id
+    this.shadow = createShadow(scene, SHIELD_RADIUS * 2)
+    this.shadow.setPosition(x, y)
     this.shape = scene.add.circle(x, y, SHIELD_RADIUS, SHIELD_COLOR)
 
     if (options.simulated) {
@@ -64,6 +69,7 @@ export default class OrbitingShield {
     } else {
       this.shape.setPosition(x, y)
     }
+    this.shadow.setPosition(x, y)
   }
 
   /** Turret Pact (DESIGN.md §9) — safe to call every frame, no-ops visually once already in the requested mode. Host-only, deliberately not networked to the joiner's render-only copy (a known simplification — the joiner still sees the turret shots fired, just not the shield's own recolor). */
@@ -87,6 +93,7 @@ export default class OrbitingShield {
   applyReceivedState(pos: Vec2) {
     if (!this.target) {
       this.shape.setPosition(pos.x, pos.y)
+      this.shadow.setPosition(pos.x, pos.y)
     }
     this.target = pos
   }
@@ -98,9 +105,11 @@ export default class OrbitingShield {
     }
     this.shape.x = Phaser.Math.Linear(this.shape.x, this.target.x, t)
     this.shape.y = Phaser.Math.Linear(this.shape.y, this.target.y, t)
+    this.shadow.setPosition(this.shape.x, this.shape.y)
   }
 
   destroy() {
     this.shape.destroy()
+    this.shadow.destroy()
   }
 }

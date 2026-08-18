@@ -7,6 +7,8 @@ import ItemPickup from '../entities/ItemPickup'
 import Buddy from '../entities/Buddy'
 import OrbitingShield from '../entities/OrbitingShield'
 import HazardZone from '../entities/HazardZone'
+import StatusZone from '../entities/StatusZone'
+import type { StatusZoneEffect } from '../entities/StatusZone'
 import Chest from '../entities/Chest'
 import DevilPedestal from '../entities/DevilPedestal'
 import GambleShrine from '../entities/GambleShrine'
@@ -36,6 +38,19 @@ import {
   GRAVITY_PULL_STRENGTH,
   BOMB_BLAST_RADIUS,
   getRoleColor,
+} from '../gameplay/roles'
+import type { ShadowController } from '../gameplay/shadow'
+import { createShadow } from '../gameplay/shadow'
+import {
+  ICE_GLUE_COMBO_FREEZE_CHANCE,
+  POISON_ELECTRIC_SPREAD_CHANCE,
+  ICE_ELECTRIC_DAMAGE_MULTIPLIER,
+  SHATTER_RADIUS,
+  ICE_PATCH_RADIUS,
+  ICE_PATCH_DURATION_MS,
+  POISON_CLOUD_RADIUS,
+  POISON_CLOUD_DURATION_MS,
+  STATUS_ZONE_REAPPLY_INTERVAL_MS,
 } from '../gameplay/roles'
 import { bonusContainersForLevel } from '../gameplay/lives'
 import type { AttackState } from '../gameplay/attack'
@@ -233,6 +248,8 @@ const ORIGIN_COORD: RoomCoord = { x: 0, y: 0 }
 
 const ENEMY_SPAWN_CENTER = { x: 400, y: 200 }
 const ENEMY_SPAWN_SPACING = 60
+/** Extra buffer beyond an enemy's own half-size when pushing it clear of a rock/water obstacle at spawn — see clearObstacles. */
+const OBSTACLE_SPAWN_CLEARANCE_PADDING = 10
 const ENEMY_PROJECTILE_COLOR = 0xff3366
 const ENEMY_PROJECTILE_SPEED = 240
 /** Splitter's children spread out a little instead of stacking exactly on the death spot. */
@@ -422,7 +439,8 @@ export default class GameSimulation implements RoomUiState {
   // are wired from the enemy/projectile side instead (see spawnEnemy /
   // spawnProjectile) since obstacles always exist first in a room, never
   // spawned mid-room afterward.
-  private roomObstacles: { shape: Phaser.GameObjects.Rectangle; type: ObstacleType }[] = []
+  /** shadow is only ever set for 'rock' (a raised pillar) — water is flat/ground-level, same reasoning as HazardZone/StatusZone never getting one either. */
+  private roomObstacles: { shape: Phaser.GameObjects.Rectangle; type: ObstacleType; shadow: ShadowController | null }[] = []
   private obstacleColliders: Phaser.Physics.Arcade.Collider[] = []
 
   private roomCoord: RoomCoord = ORIGIN_COORD
@@ -517,6 +535,10 @@ export default class GameSimulation implements RoomUiState {
   private hazardZones: Map<number, HazardZone> = new Map()
   private hazardZoneColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
   private nextHazardZoneId = 0
+  /** DESIGN.md §6's Ice+Gravity/Poison+Bomb combos — same room-scoped lingering-zone shape as hazardZones, just enemy-targeting/stack-applying instead of player-damaging. */
+  private statusZones: Map<number, StatusZone> = new Map()
+  private statusZoneColliders: Map<number, Phaser.Physics.Arcade.Collider[]> = new Map()
+  private nextStatusZoneId = 0
 
   // Buddy/Orbiting Shield (DESIGN.md §7) — unlike rooms/enemies/projectiles,
   // these persist across room transitions (they follow the player, not the
@@ -760,7 +782,12 @@ export default class GameSimulation implements RoomUiState {
         this.roomEnemies.forEach((enemy) => {
           const d = Phaser.Math.Distance.Between(projectile.x, projectile.y, enemy.x, enemy.y)
           if (d <= GRAVITY_PULL_RADIUS) {
-            enemy.applyGravityPull(now, projectile.x, projectile.y, GRAVITY_PULL_STRENGTH)
+            enemy.applyGravityPull(projectile.x, projectile.y, GRAVITY_PULL_STRENGTH)
+            // Ice + Gravity combo (DESIGN.md §6) — a frozen enemy actively
+            // being pulled periodically leaves a brief slowing ice patch.
+            if (enemy.isFrozen(now) && enemy.tryDropIcePatchAt(now)) {
+              this.spawnStatusZone('slow', enemy.x, enemy.y, ICE_PATCH_RADIUS, ICE_PATCH_DURATION_MS)
+            }
           }
         })
       }
@@ -976,6 +1003,12 @@ export default class GameSimulation implements RoomUiState {
         pos: { x: zone.x, y: zone.y },
         radius: zone.radius,
       })),
+      statusZones: Array.from(this.statusZones.values()).map((zone) => ({
+        id: zone.id,
+        pos: { x: zone.x, y: zone.y },
+        radius: zone.radius,
+        effect: zone.effect,
+      })),
       isGameOver: this.gameOver,
       isPaused: this.paused,
       coins: this.coinCount,
@@ -1010,6 +1043,10 @@ export default class GameSimulation implements RoomUiState {
     this.hazardZones.clear()
     this.hazardZoneColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.hazardZoneColliders.clear()
+    this.statusZones.forEach((zone) => zone.destroy())
+    this.statusZones.clear()
+    this.statusZoneColliders.forEach((colliders) => colliders.forEach(destroyCollider))
+    this.statusZoneColliders.clear()
     this.chest?.destroy()
     this.chest = null
     this.chestColliders.forEach(destroyCollider)
@@ -1038,7 +1075,10 @@ export default class GameSimulation implements RoomUiState {
     this.hostShields = []
     this.joinerShields.forEach((shield) => shield.destroy())
     this.joinerShields = []
-    this.roomObstacles.forEach((obstacle) => obstacle.shape.destroy())
+    this.roomObstacles.forEach((obstacle) => {
+      obstacle.shape.destroy()
+      obstacle.shadow?.destroy()
+    })
     this.roomObstacles = []
     this.obstacleColliders.forEach(destroyCollider)
     this.obstacleColliders = []
@@ -1306,7 +1346,10 @@ export default class GameSimulation implements RoomUiState {
     this.roomEnemies.forEach((enemy) => enemy.destroy())
     this.roomEnemies.clear()
 
-    this.roomObstacles.forEach((obstacle) => obstacle.shape.destroy())
+    this.roomObstacles.forEach((obstacle) => {
+      obstacle.shape.destroy()
+      obstacle.shadow?.destroy()
+    })
     this.roomObstacles = []
     this.obstacleColliders.forEach(destroyCollider)
     this.obstacleColliders = []
@@ -1345,6 +1388,12 @@ export default class GameSimulation implements RoomUiState {
     this.hazardZones.clear()
     this.hazardZoneColliders.forEach((colliders) => colliders.forEach(destroyCollider))
     this.hazardZoneColliders.clear()
+
+    // Status zones (DESIGN.md §6's ice patch/poison cloud combos) are the same lifetime class — a leftover patch doesn't carry through a door either.
+    this.statusZones.forEach((zone) => zone.destroy())
+    this.statusZones.clear()
+    this.statusZoneColliders.forEach((colliders) => colliders.forEach(destroyCollider))
+    this.statusZoneColliders.clear()
 
     // A Chest doesn't need a persisted-pickups-style snapshot like item
     // pickups do — whether this room *has* one at all is stable, stored on
@@ -1553,9 +1602,15 @@ export default class GameSimulation implements RoomUiState {
   private spawnObstacle(rect: RoomObstacle) {
     const color = rect.type === 'rock' ? ROCK_COLOR : WATER_COLOR
     const alpha = rect.type === 'rock' ? 1 : 0.6
-    const shape = this.scene.add.rectangle(rect.x + rect.width / 2, rect.y + rect.height / 2, rect.width, rect.height, color, alpha)
+    const centerX = rect.x + rect.width / 2
+    const centerY = rect.y + rect.height / 2
+    // Only rock pillars are raised off the ground — water is flat, same
+    // reasoning HazardZone/StatusZone never get a shadow either.
+    const shadow = rect.type === 'rock' ? createShadow(this.scene, Math.max(rect.width, rect.height)) : null
+    shadow?.setPosition(centerX, centerY)
+    const shape = this.scene.add.rectangle(centerX, centerY, rect.width, rect.height, color, alpha)
     this.scene.physics.add.existing(shape, true)
-    this.roomObstacles.push({ shape, type: rect.type })
+    this.roomObstacles.push({ shape, type: rect.type, shadow })
 
     this.obstacleColliders.push(this.scene.physics.add.collider(this.hostPlayer.square, shape))
     if (this.joinerPlayer) {
@@ -1564,6 +1619,48 @@ export default class GameSimulation implements RoomUiState {
   }
 
   // ---- Enemies ----
+
+  /**
+   * Nudges (x, y) outward from any rock/water obstacle it currently falls
+   * inside (expanded by `clearance`, so the enemy's own size doesn't still
+   * visually clip the edge) — the centered-line spawn formula below only
+   * ever consulted a bucket's single anchor point, never the obstacles
+   * placed around it, so an enemy several slots out from the anchor could
+   * land squarely inside a pillar or water tile. Enemies *do* get a solid
+   * collider against obstacles once spawned (see spawnEnemy), but physics
+   * separating an already-overlapping body afterward looks buggy and isn't
+   * guaranteed to push it somewhere sensible — better to never spawn inside
+   * one at all. Pushes out along whichever edge is nearest; obstacles in
+   * this game never overlap each other, so a single pass per obstacle is
+   * enough.
+   */
+  private clearObstacles(x: number, y: number, clearance: number): Vec2 {
+    let pos = { x, y }
+    for (const obstacle of this.roomObstacles) {
+      const left = obstacle.shape.x - obstacle.shape.width / 2 - clearance
+      const right = obstacle.shape.x + obstacle.shape.width / 2 + clearance
+      const top = obstacle.shape.y - obstacle.shape.height / 2 - clearance
+      const bottom = obstacle.shape.y + obstacle.shape.height / 2 + clearance
+      if (pos.x <= left || pos.x >= right || pos.y <= top || pos.y >= bottom) {
+        continue
+      }
+      const pushLeft = pos.x - left
+      const pushRight = right - pos.x
+      const pushUp = pos.y - top
+      const pushDown = bottom - pos.y
+      const minPush = Math.min(pushLeft, pushRight, pushUp, pushDown)
+      if (minPush === pushLeft) {
+        pos = { x: left, y: pos.y }
+      } else if (minPush === pushRight) {
+        pos = { x: right, y: pos.y }
+      } else if (minPush === pushUp) {
+        pos = { x: pos.x, y: top }
+      } else {
+        pos = { x: pos.x, y: bottom }
+      }
+    }
+    return pos
+  }
 
   /**
    * One room-clear spawn wave, grouped by archetype and bucketed by anchor
@@ -1597,7 +1694,8 @@ export default class GameSimulation implements RoomUiState {
         for (let i = 0; i < group.count; i++) {
           const x = anchor.x + (index - (total - 1) / 2) * ENEMY_SPAWN_SPACING
           const pos = isChase ? pushAwayFromEntry(x, anchor.y, enteredFrom) : { x, y: anchor.y }
-          this.spawnEnemy(archetype, pos.x, pos.y)
+          const clearPos = this.clearObstacles(pos.x, pos.y, archetype.size / 2 + OBSTACLE_SPAWN_CLEARANCE_PADDING)
+          this.spawnEnemy(archetype, clearPos.x, clearPos.y)
           index++
         }
       }
@@ -1679,11 +1777,12 @@ export default class GameSimulation implements RoomUiState {
       const childArchetype = ARCHETYPES[splitsOnDeath]
       for (let i = 0; i < splitCount; i++) {
         const angle = (i / splitCount) * Math.PI * 2
-        this.spawnEnemy(
-          childArchetype,
+        const pos = this.clearObstacles(
           deathX + Math.cos(angle) * SPLIT_SPAWN_OFFSET,
           deathY + Math.sin(angle) * SPLIT_SPAWN_OFFSET,
+          childArchetype.size / 2 + OBSTACLE_SPAWN_CLEARANCE_PADDING,
         )
+        this.spawnEnemy(childArchetype, pos.x, pos.y)
       }
     }
 
@@ -1899,6 +1998,50 @@ export default class GameSimulation implements RoomUiState {
     this.hazardZones.delete(id)
     this.hazardZoneColliders.get(id)?.forEach(destroyCollider)
     this.hazardZoneColliders.delete(id)
+  }
+
+  // ---- Status zones (DESIGN.md §6 combos) ----
+
+  /**
+   * Ice+Gravity's ice patch / Poison+Bomb's poison cloud — a lingering zone
+   * that expires on its own after durationMs, same shape as spawnHazardZone,
+   * but wired against roomEnemies (not players) and applying a status stack
+   * (gated by the zone's own per-enemy cooldown, StatusZone.canApplyToEnemy —
+   * unlike a hazard's direct handleHit, restacking needs its own throttle
+   * since there's no built-in invincibility-frame equivalent for enemies).
+   */
+  private spawnStatusZone(effect: StatusZoneEffect, x: number, y: number, radius: number, durationMs: number) {
+    const id = this.nextStatusZoneId++
+    const zone = new StatusZone(this.scene, id, effect, x, y, radius, { simulated: true })
+    this.statusZones.set(id, zone)
+
+    const colliders: Phaser.Physics.Arcade.Collider[] = []
+    this.roomEnemies.forEach((enemy, enemyId) => {
+      colliders.push(
+        this.scene.physics.add.overlap(zone.shape, enemy.square, () => {
+          const now = this.scene.time.now
+          if (!zone.canApplyToEnemy(enemyId, now, STATUS_ZONE_REAPPLY_INTERVAL_MS)) {
+            return
+          }
+          zone.recordApply(enemyId, now)
+          if (effect === 'slow') {
+            enemy.addSlowStack(now)
+          } else {
+            enemy.addPoisonStack(now)
+          }
+        }),
+      )
+    })
+    this.statusZoneColliders.set(id, colliders)
+
+    this.scene.time.delayedCall(durationMs, () => this.destroyStatusZone(id))
+  }
+
+  private destroyStatusZone(id: number) {
+    this.statusZones.get(id)?.destroy()
+    this.statusZones.delete(id)
+    this.statusZoneColliders.get(id)?.forEach(destroyCollider)
+    this.statusZoneColliders.delete(id)
   }
 
   // ---- Chest ----
@@ -2191,7 +2334,7 @@ export default class GameSimulation implements RoomUiState {
     // the blast itself already sweeps every enemy (and every player) in
     // radius, including whichever enemy it just made contact with.
     if (projectile.roleEffect === 'bomb') {
-      this.applyBombExplosion(projectile.x, projectile.y, projectile.damage)
+      this.applyBombExplosion(projectile.x, projectile.y, projectile.damage, this.scene.time.now)
       this.destroyProjectile(projectileId)
       return
     }
@@ -2228,13 +2371,26 @@ export default class GameSimulation implements RoomUiState {
    * reuses handleHit (i-frame gated) — the exact same shape as Strong
    * Swarmer's death explosion (resolveEnemyDeath's explodesOnDeath
    * branch), just triggered by projectile contact instead of a death.
+   *
+   * Poison + Bomb combo (DESIGN.md §6): a poisoned enemy killed by the
+   * blast releases its poison as a lingering cloud at its death position.
+   * `wasPoisoned`/`deathX`/`deathY` are all captured *before* applyHit/
+   * resolveEnemyDeath, same destroyed-object read-safety reasoning as
+   * applyElectricChain's shatter (this exact bug class already caught once
+   * this session with Chest).
    */
-  private applyBombExplosion(x: number, y: number, damage: number) {
+  private applyBombExplosion(x: number, y: number, damage: number, now: number) {
     this.roomEnemies.forEach((enemy, enemyId) => {
       if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) <= BOMB_BLAST_RADIUS) {
+        const wasPoisoned = enemy.isPoisoned(now)
+        const deathX = enemy.x
+        const deathY = enemy.y
         const died = enemy.applyHit(damage)
         if (died) {
           this.resolveEnemyDeath(enemyId, enemy)
+          if (wasPoisoned) {
+            this.spawnStatusZone('poison', deathX, deathY, POISON_CLOUD_RADIUS, POISON_CLOUD_DURATION_MS)
+          }
         }
       }
     })
@@ -2258,7 +2414,9 @@ export default class GameSimulation implements RoomUiState {
    */
   private applyRoleOnHitEffect(roleEffect: RoleId | null, enemy: Enemy, enemyId: number, damage: number, now: number) {
     if (roleEffect === 'ice') {
-      if (Math.random() < ICE_FREEZE_CHANCE) {
+      // Ice + Glue combo (DESIGN.md §6) — a slowed enemy is easier to freeze.
+      const freezeChance = enemy.isSlowed(now) ? ICE_GLUE_COMBO_FREEZE_CHANCE : ICE_FREEZE_CHANCE
+      if (Math.random() < freezeChance) {
         enemy.applyFreeze(now, ICE_FREEZE_DURATION_MS)
       }
     } else if (roleEffect === 'glue') {
@@ -2266,7 +2424,7 @@ export default class GameSimulation implements RoomUiState {
     } else if (roleEffect === 'poison') {
       enemy.addPoisonStack(now)
     } else if (roleEffect === 'electric') {
-      this.applyElectricChain(enemy, enemyId, damage)
+      this.applyElectricChain(enemy, enemyId, damage, now)
     }
   }
 
@@ -2280,12 +2438,25 @@ export default class GameSimulation implements RoomUiState {
    * runs out of enemies in range; continues past a hop that kills its
    * target (the last known position of a just-killed enemy is still a
    * valid arc origin).
+   *
+   * Two combos (DESIGN.md §6) layer onto each hop:
+   * - **Poison + Electric**: if the enemy the chain is arcing *from* is
+   *   poisoned, a POISON_ELECTRIC_SPREAD_CHANCE roll can spread a poison
+   *   stack onto the new target.
+   * - **Ice + Electric**: if the *target* is frozen, this hop deals bonus
+   *   damage and always (not just on a kill) triggers a small shatter AoE
+   *   against nearby enemies.
+   *
+   * `targetX`/`targetY` are captured before any death-causing call — reading
+   * position off an Enemy after resolveEnemyDeath has destroyed it is the
+   * same bug class already caught once this session (Chest).
    */
-  private applyElectricChain(originEnemy: Enemy, originId: number, damage: number) {
+  private applyElectricChain(originEnemy: Enemy, originId: number, damage: number, now: number) {
     if (Math.random() >= ELECTRIC_CHAIN_CHANCE) {
       return
     }
     const hitIds = new Set<number>([originId])
+    let fromEnemy: Enemy = originEnemy
     let fromX = originEnemy.x
     let fromY = originEnemy.y
     for (let hop = 0; hop < ELECTRIC_CHAIN_MAX_HOPS; hop++) {
@@ -2295,13 +2466,43 @@ export default class GameSimulation implements RoomUiState {
       }
       const [targetId, targetEnemy] = target
       hitIds.add(targetId)
-      fromX = targetEnemy.x
-      fromY = targetEnemy.y
-      const died = targetEnemy.applyHit(damage)
+      const targetX = targetEnemy.x
+      const targetY = targetEnemy.y
+
+      if (fromEnemy.isPoisoned(now) && Math.random() < POISON_ELECTRIC_SPREAD_CHANCE) {
+        targetEnemy.addPoisonStack(now)
+      }
+
+      const targetWasFrozen = targetEnemy.isFrozen(now)
+      const hopDamage = targetWasFrozen ? Math.round(damage * ICE_ELECTRIC_DAMAGE_MULTIPLIER) : damage
+      const died = targetEnemy.applyHit(hopDamage)
       if (died) {
         this.resolveEnemyDeath(targetId, targetEnemy)
       }
+      if (targetWasFrozen) {
+        this.applyShatterAoE(targetX, targetY, targetId, hopDamage)
+      }
+
+      fromEnemy = targetEnemy
+      fromX = targetX
+      fromY = targetY
     }
+  }
+
+  /** Ice + Electric combo (DESIGN.md §6) — a small AoE against every *other* living enemy within SHATTER_RADIUS, triggered by a chain hop landing on a frozen target (see applyElectricChain), regardless of whether that hop itself killed the target. Enemies-only, no player-damage pass — a reward for the freeze+chain setup, not additional risk like Bomb's blast. Reuses spawnExplosionEffect for the VFX as a first-pass placeholder. */
+  private applyShatterAoE(x: number, y: number, excludeId: number, damage: number) {
+    this.roomEnemies.forEach((enemy, enemyId) => {
+      if (enemyId === excludeId) {
+        return
+      }
+      if (Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y) <= SHATTER_RADIUS) {
+        const died = enemy.applyHit(damage)
+        if (died) {
+          this.resolveEnemyDeath(enemyId, enemy)
+        }
+      }
+    })
+    spawnExplosionEffect(this.scene, x, y)
   }
 
   /** Electric's chain target — nearest living enemy not already part of this chain, within radius, or null. */
