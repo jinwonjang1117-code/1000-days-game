@@ -1,10 +1,10 @@
 import Phaser from 'phaser'
 import { createAudioToggleButtons } from '../../../ui/audioToggles'
-import type { RoomUiState } from '../simulation/GameSimulation'
+import type { RoomUiState, DoorZone } from '../simulation/GameSimulation'
 import {
   WORLD_WIDTH,
   WORLD_HEIGHT,
-  DOOR_ZONES,
+  DOOR_VISUAL_ZONES,
   BOSS_HOLE_CENTER,
   BOSS_HOLE_RADIUS,
   DEVIL_DOOR_DIRECTION,
@@ -17,6 +17,7 @@ import type { BoostItemId, ItemId, StrongItemId } from '../gameplay/items'
 import { BOOST_ITEM_IDS, STRONG_ITEM_IDS, STAT_ITEMS } from '../gameplay/items'
 import type { RoleId } from '../gameplay/roles'
 import { BUILDABLE_ROLE_IDS, ROLES, getRoleLabel } from '../gameplay/roles'
+import { ROOM_DOOR_KEY } from '../assets'
 import MiniMap from './MiniMap'
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -186,6 +187,69 @@ function doorColorFor(neighbor: { isBoss: boolean; isGolden: boolean } | undefin
   return roomClear ? DOOR_OPEN_COLOR : DOOR_CLOSED_COLOR
 }
 
+/**
+ * env-room-door.png is authored in the north orientation (its "outward,
+ * toward the wall's outer edge" end faces up) — the other 3 sides reuse it
+ * rotated. Opposite sides need opposite rotations, not the same one: south
+ * is a 180° flip of north (its outward end faces down instead), and
+ * east/west are 90° apart from each other, not equal — using the same 90°
+ * for both left an asymmetric asset facing backwards on one of them.
+ */
+// All 4 offset by a further 180° (Math.PI) on top of their relative
+// spacing below — the Mesh rewrite's hand-built quad flipped which local
+// edge (v=0 vs v=1) reads as "outward" compared to the Image version this
+// replaced, so the whole set needed the same uniform correction.
+const DOOR_ROTATION: Record<Direction, number> = {
+  north: Math.PI,
+  south: 0,
+  east: -Math.PI / 2,
+  west: Math.PI / 2,
+}
+
+/**
+ * How many pixels the door's outward (canvas-edge) edge shifts sideways
+ * relative to its inward (floor-side) edge, to match the slight perspective
+ * lean of the side walls in env-room-bg.png — a plain Image can't do this
+ * (Phaser images have no skew transform; only DOMElement does), so this is
+ * a hand-built 2-triangle quad instead, sheared in its own local space. Only
+ * applied to east/west — north/south read fine unskewed already. First-pass
+ * guess, tune by eye; flip the sign if it leans the wrong way.
+ */
+const DOOR_SIDE_SKEW_PX = 12
+
+/**
+ * Local (pre-rotation) quad, built in the same north-orientation space
+ * DOOR_ROTATION above assumes — halfW/halfH define an unskewed rectangle,
+ * `skewPx` shifts the top edge (local y=-halfH, texture v=0, the "outward"
+ * end) sideways relative to the bottom edge (v=1, "inward"), before
+ * mesh.setRotation() reorients the whole thing per direction. Mirrors
+ * Phaser's own documented "pixel-space quad" recipe (Mesh.addVertices'
+ * doc comment): hideCCW must be disabled and setOrtho called with the
+ * exact same dimensions used to build the vertices, or the quad renders
+ * culled/blank or badly scaled.
+ */
+function buildDoorQuad(mesh: Phaser.GameObjects.Mesh, halfW: number, halfH: number, skewPx: number) {
+  const vertices = [-halfW, halfH, halfW, halfH, -halfW + skewPx, -halfH, halfW + skewPx, -halfH]
+  const uvs = [0, 1, 1, 1, 0, 0, 1, 0]
+  const indices = [0, 2, 1, 2, 3, 1]
+  mesh.addVertices(vertices, uvs, indices)
+  mesh.hideCCW = false
+  mesh.setSize(halfW * 2, halfH * 2)
+  mesh.setOrtho(halfW * 2, halfH * 2)
+}
+
+function createDoorMesh(scene: Phaser.Scene, direction: Direction, zone: DoorZone): Phaser.GameObjects.Mesh {
+  const isSide = direction === 'east' || direction === 'west'
+  const localW = isSide ? zone.height : zone.width
+  const localH = isSide ? zone.width : zone.height
+  const skewPx = direction === 'east' ? DOOR_SIDE_SKEW_PX : direction === 'west' ? -DOOR_SIDE_SKEW_PX : 0
+
+  const mesh = scene.add.mesh(zone.x + zone.width / 2, zone.y + zone.height / 2, ROOM_DOOR_KEY)
+  buildDoorQuad(mesh, localW / 2, localH / 2, skewPx)
+  mesh.setRotation(DOOR_ROTATION[direction])
+  return mesh
+}
+
 export interface GameplayHudOptions {
   scene: Phaser.Scene
   title: string
@@ -219,10 +283,10 @@ export default class GameplayHud {
   private readonly onJumpToLevel?: (level: number) => void
 
   private readonly sharedUiObjects: Phaser.GameObjects.GameObject[] = []
-  private readonly doorGraphics: Partial<Record<Direction, Phaser.GameObjects.Rectangle>> = {}
+  private readonly doorGraphics: Partial<Record<Direction, Phaser.GameObjects.Mesh>> = {}
   private readonly bossHoleGraphic: Phaser.GameObjects.Arc
   /** A real door on the wall (DEVIL_DOOR_DIRECTION), not a hole — only visible in the boss room once isDevilHoleAvailable. */
-  private readonly devilDoorGraphic: Phaser.GameObjects.Rectangle
+  private readonly devilDoorGraphic: Phaser.GameObjects.Mesh
   /** Only visible while isInDevilRoom — leads back to the boss room you detoured from. */
   private readonly devilExitGraphic: Phaser.GameObjects.Arc
   private readonly miniMap: MiniMap
@@ -255,27 +319,13 @@ export default class GameplayHud {
     )
 
     for (const direction of ALL_DIRECTIONS) {
-      const zone = DOOR_ZONES[direction]
-      this.doorGraphics[direction] = this.scene.add.rectangle(
-        zone.x + zone.width / 2,
-        zone.y + zone.height / 2,
-        zone.width,
-        zone.height,
-        DOOR_CLOSED_COLOR,
-      )
+      this.doorGraphics[direction] = createDoorMesh(this.scene, direction, DOOR_VISUAL_ZONES[direction]).setTint(DOOR_CLOSED_COLOR)
     }
     this.bossHoleGraphic = this.scene.add
       .circle(BOSS_HOLE_CENTER.x, BOSS_HOLE_CENTER.y, BOSS_HOLE_RADIUS, BOSS_HOLE_COLOR)
       .setVisible(false)
-    const devilDoorZone = DOOR_ZONES[DEVIL_DOOR_DIRECTION]
-    this.devilDoorGraphic = this.scene.add
-      .rectangle(
-        devilDoorZone.x + devilDoorZone.width / 2,
-        devilDoorZone.y + devilDoorZone.height / 2,
-        devilDoorZone.width,
-        devilDoorZone.height,
-        DEVIL_DOOR_COLOR,
-      )
+    this.devilDoorGraphic = createDoorMesh(this.scene, DEVIL_DOOR_DIRECTION, DOOR_VISUAL_ZONES[DEVIL_DOOR_DIRECTION])
+      .setTint(DEVIL_DOOR_COLOR)
       .setVisible(false)
     this.devilExitGraphic = this.scene.add
       .circle(DEVIL_EXIT_CENTER.x, DEVIL_EXIT_CENTER.y, DEVIL_EXIT_RADIUS, DEVIL_EXIT_COLOR)
@@ -338,13 +388,13 @@ export default class GameplayHud {
       this.devilDoorGraphic.setVisible(false)
       this.devilExitGraphic.setVisible(false)
       for (const direction of ALL_DIRECTIONS) {
-        const rect = this.doorGraphics[direction]
-        if (!rect) {
+        const image = this.doorGraphics[direction]
+        if (!image) {
           continue
         }
-        rect.setVisible(state.isDirectionOpen(direction))
+        image.setVisible(state.isDirectionOpen(direction))
         const neighbor = getRoomDefinition(state.floorRoomEntries, getNeighborCoord(state.currentRoomCoord, direction))
-        rect.setFillStyle(doorColorFor(neighbor, clear))
+        image.setTint(doorColorFor(neighbor, clear))
       }
     }
 

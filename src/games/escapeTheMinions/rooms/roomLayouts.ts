@@ -44,10 +44,19 @@ export interface RoomObstacleLayout {
 // zone or its ENTRY_MARGIN, regardless of which of a room's 4 sides
 // actually has a door — templates don't need to know a room's specific
 // door configuration.
-export const ARENA_MIN_X = 140
-export const ARENA_MAX_X = 660
-export const ARENA_MIN_Y = 140
-export const ARENA_MAX_Y = 460
+//
+// Also doubles as the real walkable-floor rect: env-room-bg.png (the room
+// backdrop) bakes a painted stone wall border into the image itself, so
+// PlayScene/CoopPlayScene set Arcade physics world bounds to this exact
+// rect, and GameSimulation.ts's DOOR_ZONES/getEntryCenter/Devil's Room
+// anchors are all positioned relative to it rather than the raw canvas
+// edge. The 140px inset happened to already fit the backdrop's wall
+// thickness well enough to reuse as-is — retune here if a future backdrop's
+// walls are a noticeably different thickness.
+export const ARENA_MIN_X = 100
+export const ARENA_MAX_X = 700
+export const ARENA_MIN_Y = 100
+export const ARENA_MAX_Y = 530
 
 const DEFAULT_ANCHOR: Vec2 = { x: 400, y: 200 }
 /** Shared by EMPTY_LAYOUT and generatePillarLayout — south of DEFAULT_ANCHOR, clear of both it and the arena edges. */

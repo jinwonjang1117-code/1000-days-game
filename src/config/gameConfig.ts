@@ -4,9 +4,9 @@ import MainMenuScene from '../scenes/MainMenuScene'
 import StartScene from '../games/thousandDays/scenes/StartScene'
 import GameScene from '../games/thousandDays/scenes/GameScene'
 import UIScene from '../games/thousandDays/scenes/UIScene'
-import LobbyScene from '../games/teamGame/scenes/LobbyScene'
-import PlayScene from '../games/teamGame/scenes/PlayScene'
-import CoopPlayScene from '../games/teamGame/scenes/CoopPlayScene'
+import LobbyScene from '../games/escapeTheMinions/scenes/LobbyScene'
+import PlayScene from '../games/escapeTheMinions/scenes/PlayScene'
+import CoopPlayScene from '../games/escapeTheMinions/scenes/CoopPlayScene'
 
 const gameConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,

@@ -2,8 +2,8 @@ import Phaser from 'phaser'
 
 const SHADOW_COLOR = 0x000000
 const SHADOW_ALPHA = 0.45
-/** Below every entity, above the plain background-color floor — nothing else currently claims negative depth. */
-const SHADOW_DEPTH = -1
+/** Below every entity, above the plain background-color floor — exported so the room background image (see assets.ts's ROOM_BACKGROUND_DEPTH) can derive a depth guaranteed to stay beneath it, rather than a second hardcoded number that could drift out of sync. */
+export const SHADOW_DEPTH = -1
 /**
  * A same-size, unoffset shadow is invisible in this game today — every
  * entity is still a solid-color placeholder rectangle/circle with no

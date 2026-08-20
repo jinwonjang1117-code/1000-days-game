@@ -1,6 +1,6 @@
 # 2-Player Co-op Roguelike — Game Design Document
 
-**Working title:** TBD
+**Title:** Escape the Minions
 **Repo:** same repo as the platformer (1000-days-game), accessed via the existing main menu
 **Stack:** Vite + TypeScript + Phaser 3, Arcade Physics (no gravity), PeerJS for networking
 
@@ -277,7 +277,25 @@ Unlike Golden/Boss/Devil's Room, this isn't a unique per-level room — it's a f
 
 Organized by priority — **Core** is what you need to start implementing gameplay; the rest can follow once the loop is fun. This whole section is explicitly the **last stage** of the roadmap (CLAUDE.md) — everything is deliberately colored rectangles/arcs and either silence or the reused hub track until then, and that's fine; don't let placeholder-art guilt pull this forward early.
 
-**Before sourcing/making any actual files**, the checklist below needs one more planning pass: turn every bullet into an exact filename and target path, following the platformer's existing convention (`public/assets/<game-slug>/`, flat — no subfolders — files named `sfx-*.wav`, `bgm-*.mp3`, and plain descriptive names for images/spritesheets, e.g. `public/assets/thousand-days/sfx-player-hit.wav`, `bgm-boss.mp3`, `enemy-ghost.png`). The point is so the exact filename is known up front — you just drop a matching file into the folder and it's wired in, no back-and-forth over what to call it. That naming pass (and the actual `this.load.image/audio(...)` calls in whatever preload scene this game ends up with) is real engineering work for whenever Stage 14-16 (CLAUDE.md) actually starts — this checklist alone isn't that manifest yet.
+**Naming/organization convention (settled)** — `public/assets/escape-the-minions/<category>/`, one shallow level of category subfolders. A deliberate deviation from the platformer sibling game's flat convention (`public/assets/thousand-days/`) — that game only has ~30 files total, this one is expected to have well over 100 (enemies + bosses + several environment themes + items/roles/holdables + UI + SFX + music), and a single flat folder stops being navigable well before that count. Filenames *within* each folder still match the actual TypeScript identifiers already in the code (`RoleId`, `StrongItemId`, `ArchetypeCategory`) wherever one exists, so wiring up the eventual `this.load.image/audio(...)` calls is close to mechanical rather than hand-mapped later:
+
+| Category | Folder | Pattern | Examples |
+|---|---|---|---|
+| Players | `players/` | `player-<n>.png` | `player-1.png`, `player-2.png` |
+| Enemies — **one file per archetype category, not per tier** (Weak/Strong is scale+tint in code, see §10) | `enemies/` | `enemy-<category>.png` | `enemy-swarmer.png`, `enemy-ranged-shooter.png`, `enemy-spread-shooter.png` |
+| Bosses | `bosses/` | `boss-<name>.png` | `boss-brute.png` (exact roster still open — see the roadmap's boss-design pass, not yet settled or written into this doc) |
+| Environment backdrop — **one full-room painting per theme, not a tileset** (this game's camera is static per room, DESIGN.md §2 — no scrolling means no seamless-tile requirement, just one image sized to the room) | `environment/` | `env-<theme>-bg.png` | `env-prison-bg.png` (exact theme roster still open) |
+| Environment door | `environment/` | `env-<theme>-door.png` | `env-prison-door.png` — painted with **solid walls, no baked-in openings**; the archway is its own sprite positioned only at whichever of the 4 wall midpoints (`GameSimulation.DOOR_ZONES`) actually connects for a given room, same visible/hidden toggle the placeholder door graphic already uses today |
+| Environment obstacles | `environment/` | `env-<theme>-rock.png` / `env-<theme>-water.png` | `env-prison-rock.png` — per-theme is the default; a single shared `rock.png`/`water.png` across all themes is a reasonable fallback if that's more than wanted up front |
+| Strong items | `items/` | `item-<id>.png` | `item-multi-shot.png`, `item-pierce.png`, `item-orbiting-shield.png` |
+| Roles | `items/` | `role-<id>.png` | `role-ice.png`, `role-electric.png`, `role-bomb.png` |
+| Holdables (not built yet) | `items/` | `holdable-<id>.png` | `holdable-absolute-zero.png` |
+| Boost items | `items/` | `boost-mystery.png` | **One file total**, not one per boost stat — boost items are deliberately still a mystery "?" look on the ground even once identified items exist (only *which* boost stays hidden until picked up), so they never needed individual art |
+| UI | `ui/` | `ui-<name>.png` | `ui-heart-full.png`, `ui-heart-empty.png`, `ui-coin.png`, `ui-key.png` |
+| SFX (already established) | `sfx/` | `sfx-<name>.wav` | `sfx-player-hit.wav` |
+| Music (already established) | `bgm/` | `bgm-<name>.mp3` | `bgm-prison.mp3` |
+
+The point is so the exact filename is known up front — you just drop a matching file into the folder and it's wired in, no back-and-forth over what to call it. The actual `this.load.image/audio(...)` calls in whatever preload scene this game ends up with are still real engineering work for whenever Stage 14-16 (CLAUDE.md) actually starts — this is the naming convention, not that wiring pass.
 
 ### Sprites — Core (needed early)
 - [ ] **Player 1** — idle/move in 8 directions (or a simpler 4-direction + flip scheme), a "charging" pose (for Bomb), a hit-reaction frame

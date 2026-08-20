@@ -2,9 +2,9 @@ import Phaser from 'phaser'
 import { ThousandDaysScenes } from '../games/thousandDays/sceneKeys'
 import { TextureKeys } from '../games/thousandDays/config/textureKeys'
 import { loadThousandDaysAssets, THOUSAND_DAYS_PLAYER_THUMBNAIL } from '../games/thousandDays/assets'
-import { TeamGameScenes } from '../games/teamGame/sceneKeys'
-import { TEAM_GAME_ID, TEAM_GAME_TITLE, TEAM_GAME_DESCRIPTION } from '../games/teamGame/gameId'
-import { loadTeamGameAssets, generateTeamGameThumbnail, TEAM_GAME_THUMBNAIL_KEY } from '../games/teamGame/assets'
+import { TeamGameScenes } from '../games/escapeTheMinions/sceneKeys'
+import { TEAM_GAME_ID, TEAM_GAME_TITLE, TEAM_GAME_DESCRIPTION } from '../games/escapeTheMinions/gameId'
+import { loadTeamGameAssets, generateTeamGameThumbnail, TEAM_GAME_THUMBNAIL_KEY } from '../games/escapeTheMinions/assets'
 
 export interface GameDefinition {
   /** Stable identifier, also used to remember whether assets are loaded. */

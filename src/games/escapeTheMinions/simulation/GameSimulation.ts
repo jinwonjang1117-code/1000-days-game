@@ -71,7 +71,11 @@ export const WORLD_WIDTH = 800
 export const WORLD_HEIGHT = 600
 const DOOR_SIZE = 70
 const DOOR_DEPTH = 24
-const ENTRY_MARGIN = 90
+// Relative to ARENA_MIN/MAX (the walkable floor), not the raw canvas edge —
+// see ARENA_MIN_X/etc.'s doc comment in roomLayouts.ts for why the floor is
+// inset from the canvas at all (env-room-bg.png bakes a painted wall border
+// into the backdrop, so the walkable rect had to shrink to match it).
+const ENTRY_MARGIN = 50
 const PLAYER_ENTRY_OFFSET = 30
 
 export interface DoorZone {
@@ -81,11 +85,31 @@ export interface DoorZone {
   height: number
 }
 
+// Positioned at the ARENA boundary (the wall/floor seam), extending inward
+// from it — not at the raw canvas edge, which is now painted wall in
+// env-room-bg.png and unreachable since ARENA_MIN/MAX became the actual
+// physics bounds (see PlayScene/CoopPlayScene's create()).
 export const DOOR_ZONES: Record<Direction, DoorZone> = {
-  north: { x: WORLD_WIDTH / 2 - DOOR_SIZE / 2, y: 0, width: DOOR_SIZE, height: DOOR_DEPTH },
-  south: { x: WORLD_WIDTH / 2 - DOOR_SIZE / 2, y: WORLD_HEIGHT - DOOR_DEPTH, width: DOOR_SIZE, height: DOOR_DEPTH },
-  east: { x: WORLD_WIDTH - DOOR_DEPTH, y: WORLD_HEIGHT / 2 - DOOR_SIZE / 2, width: DOOR_DEPTH, height: DOOR_SIZE },
-  west: { x: 0, y: WORLD_HEIGHT / 2 - DOOR_SIZE / 2, width: DOOR_DEPTH, height: DOOR_SIZE },
+  north: { x: WORLD_WIDTH / 2 - DOOR_SIZE / 2, y: ARENA_MIN_Y, width: DOOR_SIZE, height: DOOR_DEPTH },
+  south: { x: WORLD_WIDTH / 2 - DOOR_SIZE / 2, y: ARENA_MAX_Y - DOOR_DEPTH, width: DOOR_SIZE, height: DOOR_DEPTH },
+  east: { x: ARENA_MAX_X - DOOR_DEPTH, y: WORLD_HEIGHT / 2 - DOOR_SIZE / 2, width: DOOR_DEPTH, height: DOOR_SIZE },
+  west: { x: ARENA_MIN_X, y: WORLD_HEIGHT / 2 - DOOR_SIZE / 2, width: DOOR_DEPTH, height: DOOR_SIZE },
+}
+
+/**
+ * Purely cosmetic — where GameplayHud draws the door *graphic*, as opposed
+ * to DOOR_ZONES above (the touch-trigger rect, which has to stay on the
+ * floor side of the boundary since a player physically can't reach into
+ * the wall). Isaac-style: a door reads as a gap cut through the wall
+ * leading off toward the screen edge, not a marker sitting on the floor —
+ * so each of these spans the *entire* wall band on its side, from the
+ * ARENA boundary out to the raw canvas edge.
+ */
+export const DOOR_VISUAL_ZONES: Record<Direction, DoorZone> = {
+  north: { x: WORLD_WIDTH / 2 - DOOR_SIZE / 2, y: 0, width: DOOR_SIZE, height: ARENA_MIN_Y },
+  south: { x: WORLD_WIDTH / 2 - DOOR_SIZE / 2, y: ARENA_MAX_Y, width: DOOR_SIZE, height: WORLD_HEIGHT - ARENA_MAX_Y },
+  east: { x: ARENA_MAX_X, y: WORLD_HEIGHT / 2 - DOOR_SIZE / 2, width: WORLD_WIDTH - ARENA_MAX_X, height: DOOR_SIZE },
+  west: { x: 0, y: WORLD_HEIGHT / 2 - DOOR_SIZE / 2, width: ARENA_MIN_X, height: DOOR_SIZE },
 }
 
 /** The boss room has no directional doors — clearing it reveals this instead, in the room's center. */
@@ -103,17 +127,19 @@ export const BOSS_HOLE_RADIUS = 36
 export const DEVIL_DOOR_DIRECTION: Direction = 'north'
 /**
  * Devil's Room isn't a grid room — it reuses the same 800x600 canvas, just
- * laid out with fixed pedestal/exit/spawn positions instead of doors.
+ * laid out with fixed pedestal/exit/spawn positions instead of doors. All
+ * three of the below are kept within ARENA_MIN/MAX (the actual walkable
+ * floor once env-room-bg.png's wall border became real physics bounds).
  * Deliberately NOT stacked in a straight vertical line between spawn and
  * the pedestals — the exit sits off in a corner instead, so walking
  * straight from spawn toward the pedestals can never clip through it.
  */
 export const DEVIL_ROOM_PEDESTAL_ANCHOR = { x: WORLD_WIDTH / 2, y: 220 }
 const DEVIL_ROOM_PEDESTAL_SPACING = 150
-export const DEVIL_EXIT_CENTER = { x: WORLD_WIDTH - 100, y: WORLD_HEIGHT - 80 }
+export const DEVIL_EXIT_CENTER = { x: ARENA_MAX_X - 40, y: ARENA_MAX_Y - 40 }
 export const DEVIL_EXIT_RADIUS = 36
-const DEVIL_ROOM_HOST_SPAWN = { x: WORLD_WIDTH / 2 - 50, y: WORLD_HEIGHT - 80 }
-const DEVIL_ROOM_JOINER_SPAWN = { x: WORLD_WIDTH / 2 + 50, y: WORLD_HEIGHT - 80 }
+const DEVIL_ROOM_HOST_SPAWN = { x: WORLD_WIDTH / 2 - 50, y: ARENA_MAX_Y - 40 }
+const DEVIL_ROOM_JOINER_SPAWN = { x: WORLD_WIDTH / 2 + 50, y: ARENA_MAX_Y - 40 }
 
 function isInsideZone(x: number, y: number, zone: DoorZone): boolean {
   return x >= zone.x && x <= zone.x + zone.width && y >= zone.y && y <= zone.y + zone.height
@@ -122,13 +148,13 @@ function isInsideZone(x: number, y: number, zone: DoorZone): boolean {
 function getEntryCenter(edge: Direction): { x: number; y: number } {
   switch (edge) {
     case 'north':
-      return { x: WORLD_WIDTH / 2, y: ENTRY_MARGIN }
+      return { x: WORLD_WIDTH / 2, y: ARENA_MIN_Y + ENTRY_MARGIN }
     case 'south':
-      return { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT - ENTRY_MARGIN }
+      return { x: WORLD_WIDTH / 2, y: ARENA_MAX_Y - ENTRY_MARGIN }
     case 'east':
-      return { x: WORLD_WIDTH - ENTRY_MARGIN, y: WORLD_HEIGHT / 2 }
+      return { x: ARENA_MAX_X - ENTRY_MARGIN, y: WORLD_HEIGHT / 2 }
     case 'west':
-      return { x: ENTRY_MARGIN, y: WORLD_HEIGHT / 2 }
+      return { x: ARENA_MIN_X + ENTRY_MARGIN, y: WORLD_HEIGHT / 2 }
   }
 }
 

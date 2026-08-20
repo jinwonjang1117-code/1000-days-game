@@ -39,7 +39,9 @@ import type { MiniMapRoomInfo } from '../ui/MiniMap'
 import { showPickupText, spawnExplosionEffect, playFartSound } from '../ui/cosmeticEffects'
 import GameplayHud from '../ui/GameplayHud'
 import type { RoomUiState } from '../simulation/GameSimulation'
-import GameSimulation from '../simulation/GameSimulation'
+import GameSimulation, { WORLD_WIDTH, WORLD_HEIGHT } from '../simulation/GameSimulation'
+import { loadRoomBackgroundAssets, ROOM_BACKGROUND_KEY, ROOM_BACKGROUND_DEPTH } from '../assets'
+import { ARENA_MIN_X, ARENA_MAX_X, ARENA_MIN_Y, ARENA_MAX_Y } from '../rooms/roomLayouts'
 
 const LEGEND_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'monospace',
@@ -139,8 +141,21 @@ export default class CoopPlayScene extends Phaser.Scene implements RoomUiState {
     super({ key: TeamGameScenes.CoopPlay })
   }
 
+  preload() {
+    loadRoomBackgroundAssets(this)
+  }
+
   create() {
     this.cameras.main.setBackgroundColor('#1a1a2e')
+    // Kept as a fallback layer beneath the image (harmless if the image
+    // ever fails to load) rather than replaced by it.
+    this.add.image(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, ROOM_BACKGROUND_KEY).setDisplaySize(WORLD_WIDTH, WORLD_HEIGHT).setDepth(ROOM_BACKGROUND_DEPTH)
+
+    // env-room-bg.png paints a solid wall border into the backdrop itself —
+    // constrain physics to the actual floor (ARENA_MIN/MAX) instead of the
+    // full canvas. Harmless to set unconditionally even for the joiner role
+    // (whose Player/Enemy instances have no Arcade body to constrain).
+    this.physics.world.setBounds(ARENA_MIN_X, ARENA_MIN_Y, ARENA_MAX_X - ARENA_MIN_X, ARENA_MAX_Y - ARENA_MIN_Y)
 
     // Reset in case this scene instance is being re-entered — Phaser
     // reuses the same Scene instance across scene.start() calls, so stale
